@@ -37,6 +37,49 @@ api/
   .env.example
 ```
 
+## Base de datos (prerrequisito)
+
+El API requiere una base MySQL `acr` ya creada y el esquema de la Fase 2
+aplicado. Comandos exactos:
+
+```sql
+CREATE DATABASE acr CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'acr_user'@'localhost' IDENTIFIED BY 'acr_password';
+GRANT ALL PRIVILEGES ON acr.* TO 'acr_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+```bash
+mysql -u acr_user -p acr < datamodel/migrations/acr_migrations.sql
+```
+
+La conexión se configura con la variable de entorno `DATABASE_URL`
+(driver `mysql+pymysql`):
+
+```
+DATABASE_URL=mysql+pymysql://acr_user:acr_password@localhost:3306/acr
+```
+
+> El esquema (16 tablas) vive en `datamodel/migrations/acr_migrations.sql`
+> y su diseño en `datamodel/acr.dbml` (Fase 2). El API no crea las tablas:
+> se ejecuta el SQL primero.
+
+## Ejecutar el API
+
+```bash
+cd api
+pip install -r requirements.txt
+cp .env.example .env          # define JWT_SECRET y DATABASE_URL
+python seed.py                # crea roles base + usuario admin
+uvicorn app.main:app --reload
+```
+
+- Documentación interactiva (Swagger) generada automáticamente por FastAPI
+  en **`/docs`** (`http://127.0.0.1:8000/docs`). Esquema OpenAPI en `/openapi.json`.
+- Login OAuth2 en `POST /auth/login` (username/password) → devuelve
+  `access_token` + `refresh_token` (JWT HS256). Usar el token con prefijo
+  `Bearer ` en el header `Authorization` o vía botón "Authorize" en `/docs`.
+
 ## Endpoints por módulo (resumen)
 - **Auth:** `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me`.
 - **Usuarios/Roles:** CRUD `usuarios`, `roles`, asignación de rol.

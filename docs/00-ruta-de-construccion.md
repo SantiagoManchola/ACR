@@ -54,19 +54,26 @@
 5. Verificar en dbdiagram.io que el diagrama es coherente con los requerimientos.
 6. Pasar el esquema validado a la Fase 3.
 
-## Paso 3 — API (Fase 3)
+## Paso 3 — API (Fase 3) — ✅ CÓDIGO GENERADO (pendiente de ejecutar contra BD)
 
-**Responsable:** `agents/api-agent.md`.
+**Responsable:** `agents/api-agent.md`. **Estado:** implementación completa en `api/`
+(FastAPI + SQLAlchemy 2.0 + MySQL + JWT + roles + reportes CSV/XLSX/PDF).
+Falta ejecutar en un entorno con MySQL disponible.
 
-1. Inicializar proyecto FastAPI en `api/`.
-2. Crear conexión a MySQL y ejecutar el SQL de la Fase 2.
-3. Implementar auth (JWT, roles, permisos) — base transversal.
-4. Implementar módulos en orden de prioridad alta (ver `docs/01-alcance.md`):
-   auth/admin → inventario → micromedidores → planta → reportes.
-5. Validaciones Pydantic que reflejen reglas de negocio (lectura mensual, promedio histórico,
-   soft delete, alertas de rango).
-6. Endpoints de exportación (CSV/Excel/PDF) para reportes.
-7. Tests de los endpoints críticos. Documentación OpenAPI (Swagger) automática.
+Orden de arranque (ver `api/README.md` y `docs/04-api.md` para detalle):
+
+0. **Crear la BD y correr el SQL** (prerrequisito, antes de arrancar el API):
+   - `CREATE DATABASE acr CHARSET utf8mb4;` + usuario `acr_user`.
+   - `mysql -u acr_user -p acr < datamodel/migrations/acr_migrations.sql`.
+   - Definir `DATABASE_URL=mysql+pymysql://acr_user:acr_password@localhost:3306/acr`.
+1. `pip install -r api/requirements.txt` e `cp api/.env.example api/.env`.
+2. `python api/seed.py` → crea roles (`admin`, `administrativo`, `operario`,
+   `fontanero`) y usuario admin desde env.
+3. `uvicorn app.main:app --reload` (desde `api/`).
+4. Swagger automático en **`/docs`**.
+5. Auth JWT (HS256) + control de acceso por rol en todos los módulos.
+6. Validaciones Pydantic (RNF-06), trazabilidad `created_by`/`updated_by` (RNF-07),
+   soft delete con `estado`, y exportación CSV/XLSX/PDF (RNF-19) en `/reportes/*`.
 
 ## Paso 4 — CMS / Panel web (Fase 4)
 
