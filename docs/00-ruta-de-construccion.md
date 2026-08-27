@@ -12,7 +12,7 @@
 | 0 | Setup | Estructura, brief, contexto, marca | raíz + `context/` | orquestador |
 | 1 | Documentación | Docs paso a paso + manual | `docs/` | orquestador |
 | 2 | Modelo de datos | Diagrama DBML + SQL | `datamodel/` | `agents/datamodel-agent.md` |
-| 3 | API | Backend FastAPI + PostgreSQL | `api/` | `agents/api-agent.md` |
+| 3 | API | Backend FastAPI + MySQL | `api/` | `agents/api-agent.md` |
 | 4 | CMS | Panel web (SPA) | `cms/` | `agents/cms-agent.md` |
 
 ---
@@ -50,7 +50,7 @@
      `actividades_planta`, `horas_servicio`.
    - Tablas de auditoría donde aplique.
 3. Definir relaciones, claves, índices y `created_by`/`updated_by`/`created_at`.
-4. Exportar a `datamodel/acr.dbml` y generar SQL PostgreSQL.
+4. Exportar a `datamodel/acr.dbml` y generar SQL MySQL.
 5. Verificar en dbdiagram.io que el diagrama es coherente con los requerimientos.
 6. Pasar el esquema validado a la Fase 3.
 
@@ -59,7 +59,7 @@
 **Responsable:** `agents/api-agent.md`.
 
 1. Inicializar proyecto FastAPI en `api/`.
-2. Crear conexión a PostgreSQL y ejecutar el SQL de la Fase 2.
+2. Crear conexión a MySQL y ejecutar el SQL de la Fase 2.
 3. Implementar auth (JWT, roles, permisos) — base transversal.
 4. Implementar módulos en orden de prioridad alta (ver `docs/01-alcance.md`):
    auth/admin → inventario → micromedidores → planta → reportes.

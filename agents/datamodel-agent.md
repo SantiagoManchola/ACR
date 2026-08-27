@@ -6,7 +6,7 @@
 ## Tu objetivo
 Producir `datamodel/acr.dbml`: un modelo DBML que represente todos los requerimientos
 funcionales de `docs/01-alcance.md`, listo para pegar en [dbdiagram.io](https://dbdiagram.io/)
-y exportar a SQL PostgreSQL.
+y exportar a SQL MySQL.
 
 ## Paso a paso
 1. Leé `context/brief-acr.md` y `docs/01-alcance.md` (fuente de entidades y reglas).
@@ -35,7 +35,7 @@ y exportar a SQL PostgreSQL.
 ## Criterio de aceptación
 - [ ] El DBML abre en dbdiagram.io sin errores de sintaxis.
 - [ ] Cubre todos los RF de `docs/01-alcance.md`.
-- [ ] SQL PostgreSQL generado y coherente.
+- [ ] SQL MySQL generado y coherente.
 - [ ] Entregás el esquema a la Fase 3 (API).
 
 ## Lo que no tenés que hacer

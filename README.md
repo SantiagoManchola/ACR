@@ -14,7 +14,7 @@ con control de acceso por rol, trazabilidad y reportes exportables.
 | `docs/` | Ruta paso a paso, alcance, arquitectura, planes de fase, manual de usuario |
 | `agents/` | Agentes especializados por fase (datamodel, api, cms) |
 | `datamodel/` | Fase 2: `acr.dbml` (dbdiagram.io) |
-| `api/` | Fase 3: backend FastAPI + PostgreSQL |
+| `api/` | Fase 3: backend FastAPI + MySQL |
 | `cms/` | Fase 4: panel web (SPA) |
 
 ## Fases del proyecto

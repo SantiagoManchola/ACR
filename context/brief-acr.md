@@ -63,8 +63,8 @@ Azul `#2160AD` + blanco. Ver `context/marca-acr.md`.
 
 | Capa | Propuesta | Por qué |
 |---|---|---|
-| API | **FastAPI (Python) + PostgreSQL + JWT** | Rápido de construir, tipado, ideal para datos/CRUD y reportes. |
-| Modelo de datos | **DBML en dbdiagram.io** | Visualización y exportación SQL lista para PostgreSQL. |
+| API | **FastAPI (Python) + MySQL + JWT** | Rápido de construir, tipado, ideal para datos/CRUD y reportes. |
+| Modelo de datos | **DBML en dbdiagram.io** | Visualización y exportación SQL lista para MySQL. |
 | CMS / panel web | **Vue 3 + Pinia + Vite** (o Next.js) | SPA limpia, responsive, fácil de temar con la paleta ACR. |
 | Auth | JWT + roles/permisos | Cumple RNF de control de acceso y trazabilidad. |
 

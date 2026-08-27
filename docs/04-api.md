@@ -1,4 +1,4 @@
-# Plan Fase 3 — API (FastAPI + PostgreSQL)
+# Plan Fase 3 — API (FastAPI + MySQL)
 
 > Entregable: `api/` (código FastAPI funcional). Agente: `agents/api-agent.md`.
 > Depende de: Fase 2 (`datamodel/acr.dbml` → SQL).
@@ -10,7 +10,7 @@ Exponer los módulos de ACR vía API REST segura, tipada y documentada, cumplien
 
 ## Stack propuesto
 - **FastAPI** + **Pydantic v2** (validaciones = RNF-06).
-- **SQLAlchemy** (o SQLModel) + **PostgreSQL**.
+- **SQLAlchemy** (o SQLModel) + **MySQL**.
 - **Auth:** JWT (python-jose / PyJWT) + contraseñas bcrypt.
 - **Migraciones:** el SQL de Fase 2 como base; opcional Alembic para cambios.
 - **Exportación:** pandas/openpyxl (Excel), csv, reportlab (PDF).

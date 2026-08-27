@@ -1,4 +1,4 @@
-# Agente Fase 3 — API (FastAPI + PostgreSQL)
+# Agente Fase 3 — API (FastAPI + MySQL)
 
 > Usado por el agente de código cuando toca construir el backend de ACR.
 > Carpeta de trabajo: `api/`. Plan completo: `docs/04-api.md`.
@@ -12,7 +12,7 @@ no funcionales (auth, control de acceso, trazabilidad, integridad, exportación)
 1. Leé `AGENTS.md`, `docs/01-alcance.md`, `docs/02-arquitectura.md`, `docs/04-api.md` y el
    `datamodel/acr.dbml` de la Fase 2.
 2. Inicializá `api/` con FastAPI + SQLAlchemy/SQLModel + Pydantic v2.
-3. Ejecutá el SQL de Fase 2 en PostgreSQL (schema `acr`).
+3. Ejecutá el SQL de Fase 2 en MySQL (schema `acr`).
 4. Implementá `security.py`: JWT (login/refresh), hashing bcrypt, dependencia `get_current_user`
    y `require_role([...])`.
 5. Implementá los routers en orden de prioridad alta: `auth`, `usuarios`, `inventario`,

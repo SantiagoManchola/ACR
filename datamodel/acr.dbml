@@ -1,0 +1,307 @@
+// =============================================================
+// ACR — Acueducto Comunitario Acuaricaurte
+// Modelo de datos (DBML) — Fase 2
+// Fuente: docs/01-alcance.md, context/brief-acr.md
+// Pegar en https://dbdiagram.io/ y exportar a MySQL.
+// =============================================================
+
+Project acr {
+  database_type: 'MySQL'
+  note: 'Sistema de gestión operativa ACR. Marca: azul #2160AD + blanco.'
+}
+
+// ---------- Enums ----------
+enum tipo_agua {
+  cruda
+  tratada
+}
+
+enum tipo_usuario {
+  residencial
+  comercial
+  otro
+}
+
+enum tipo_movimiento {
+  entrada
+  salida
+}
+
+enum estado_registro {
+  activo
+  inactivo
+}
+
+enum categoria_tipo {
+  equipo
+  herramienta
+  laboratorio
+  accesorio
+}
+
+// =============================================================
+// MÓDULO DE AUTENTICACIÓN Y ADMINISTRACIÓN
+// RF-01 Autenticación · RF-02 Usuarios · RF-03 Roles · RF-04 Permisos
+// =============================================================
+
+Table roles {
+  id              serial [pk]
+  nombre          varchar(50) [not null, unique]
+  descripcion     text
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table permisos {
+  id              serial [pk]
+  codigo          varchar(50) [not null, unique] // ej. inventario:escribir
+  descripcion     text
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table rol_permisos {
+  rol_id          integer [not null, ref: > roles.id]
+  permiso_id      integer [not null, ref: > permisos.id]
+  indexes {
+    (rol_id, permiso_id) [pk]
+  }
+}
+
+Table usuarios {
+  id              serial [pk]
+  nombre          varchar(150) [not null]
+  identificacion  varchar(30)
+  username        varchar(50) [not null, unique]
+  password_hash   varchar(255) [not null]
+  rol_id          integer [not null, ref: > roles.id]
+  estado          estado_registro [not null, default: 'activo']
+  ultimo_acceso   timestamptz
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+// =============================================================
+// MÓDULO DE INVENTARIO
+// RF-06..RF-20
+// =============================================================
+
+Table categorias_inventario {
+  id              serial [pk]
+  nombre          varchar(100) [not null]
+  tipo            categoria_tipo [not null] // fijo vs accesorio/consumo (regla 5)
+  descripcion     text
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table elementos_inventario {
+  id              serial [pk]
+  nombre          varchar(150) [not null]
+  categoria_id    integer [not null, ref: > categorias_inventario.id]
+  tipo            varchar(50)  // subclasificación: tubería, codo, herramienta...
+  ubicacion       varchar(120) // planta de tratamiento u otra
+  cantidad        numeric(12,2) [not null, default: 0] // existencias (RF-09)
+  unidad          varchar(20)  // unidad de medida del elemento
+  proveedor       varchar(150)
+  valor           numeric(14,2) // info económica (RF-19)
+  minimo          numeric(12,2) // inventario mínimo (RF-17)
+  estado          estado_registro [not null, default: 'activo'] // soft delete (regla 14)
+  observaciones   text
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+  indexes {
+    (categoria_id)
+    (ubicacion)
+  }
+}
+
+Table movimientos_inventario {
+  id              serial [pk]
+  elemento_id     integer [not null, ref: > elementos_inventario.id]
+  tipo            tipo_movimiento [not null] // entrada/salida (RF-10/RF-11)
+  cantidad        numeric(12,2) [not null]
+  responsable_id  integer [ref: > usuarios.id] // RF-12
+  motivo          varchar(150) // RF-13
+  observaciones   text // RF-14
+  fecha           date [not null]
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha, elemento_id)
+    (elemento_id)
+  }
+}
+
+// =============================================================
+// MÓDULO DE MICROMEDIDORES
+// RF-21..RF-36
+// =============================================================
+
+Table suscriptores {
+  id                serial [pk]
+  nombre            varchar(150) [not null]
+  identificacion    varchar(30)
+  codigo_usuario    varchar(30) [unique] // código interno
+  codigo_facturacion varchar(30) // código sistema de facturación
+  tipo_usuario      tipo_usuario [not null, default: 'residencial']
+  sector            varchar(80)  // barrio/sector (RF-34)
+  direccion         varchar(200)
+  estado            estado_registro [not null, default: 'activo'] // soft delete
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (sector)
+    (codigo_usuario)
+  }
+}
+
+Table micromedidores {
+  id                serial [pk]
+  serial            varchar(50) [not null, unique] // RF-23
+  tipo              varchar(50) // RF-23
+  suscriptor_id     integer [ref: > suscriptores.id] // RF-24
+  direccion         varchar(200) // RF-23
+  fecha_instalacion date // RF-23
+  estado            estado_registro [not null, default: 'activo'] // soft delete
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (suscriptor_id)
+  }
+}
+
+Table lecturas {
+  id                serial [pk]
+  micromedidor_id   integer [not null, ref: > micromedidores.id] // RF-25/RF-24
+  suscriptor_id     integer [not null, ref: > suscriptores.id] // regla 4
+  fecha             date [not null] // RF-26
+  hora              time // RF-41 (reutilizado)
+  lectura           numeric(12,3) [not null] // valor del medidor
+  consumo           numeric(12,3) // calculado o promedio (RF-30/RF-31)
+  promedio_usado    boolean [not null, default: false] // regla 2 (sin lectura)
+  responsable_id    integer [ref: > usuarios.id] // RF-27
+  novedad           varchar(200) // RF-32 (obstrucción, acceso negado...)
+  irregular         boolean [not null, default: false] // regla 3
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha, micromedidor_id)
+    (suscriptor_id)
+    (micromedidor_id)
+  }
+}
+
+// =============================================================
+// MÓDULO DE PLANTA DE TRATAMIENTO
+// RF-37..RF-54
+// =============================================================
+
+Table parametros_planta {
+  id              serial [pk]
+  nombre          varchar(80) [not null] // pH, color, turbiedad, cloro, temperatura
+  tipo_agua       tipo_agua [not null] // RF-38/RF-39
+  unidad          varchar(20)
+  valor_min       numeric(12,4) // RF-48 (configurable, regla 9)
+  valor_max       numeric(12,4) // RF-48
+  estado          estado_registro [not null, default: 'activo'] // RF-40 config
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table mediciones {
+  id                serial [pk]
+  parametro_id      integer [not null, ref: > parametros_planta.id]
+  valor             numeric(12,4) [not null]
+  fecha             date [not null] // RF-41
+  hora              time // RF-41
+  responsable_id    integer [ref: > usuarios.id] // RF-42
+  fuera_rango       boolean [not null, default: false] // RF-49
+  accion_correctiva text // RF-50
+  observaciones     text // RF-47
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha, parametro_id)
+    (parametro_id)
+  }
+}
+
+Table productos_quimicos {
+  id                serial [pk]
+  nombre            varchar(120) [not null]
+  unidad            varchar(20)
+  cantidad_disponible numeric(12,2) [not null, default: 0] // RF-44
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+}
+
+Table dosificaciones {
+  id                serial [pk]
+  producto_id       integer [not null, ref: > productos_quimicos.id] // RF-43
+  cantidad          numeric(12,2) [not null] // RF-43
+  fecha             date [not null]
+  hora              time
+  responsable_id    integer [ref: > usuarios.id]
+  observaciones     text
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha, producto_id)
+  }
+}
+
+Table actividades_planta {
+  id                serial [pk]
+  tipo              varchar(80) [not null] // limpieza, desinfección, tanques, bocatoma
+  fecha             date [not null] // RF-45
+  hora              time
+  responsable_id    integer [ref: > usuarios.id]
+  estado            estado_registro [not null, default: 'activo']
+  observaciones     text
+  evidencia         varchar(255) // ruta de archivo/foto cuando aplique
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha, tipo)
+  }
+}
+
+Table horas_servicio {
+  id                serial [pk]
+  fecha             date [not null]
+  horas             numeric(6,2) [not null] // RF-46
+  responsable_id    integer [ref: > usuarios.id]
+  observaciones     text
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha)
+  }
+}

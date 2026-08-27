@@ -32,7 +32,7 @@ alcance:
   volumen_estimado:  ~1.124 usuarios, 3 operarios, 2 fontaneros, planta con mediciones diarias
 
 tecnico:
-  api:               FastAPI + PostgreSQL + JWT  (propuesta)
+  api:               FastAPI + MySQL + JWT  (propuesta)
   modelo_datos:      DBML en dbdiagram.io       (propuesta)
   cms:               Vue 3 + Pinia + Vite        (propuesta)
   auth:              JWT + roles/permisos
@@ -58,7 +58,7 @@ agente y su repositorio lógico.
 
 El levantamiento de requerimientos ya definió entidades (suscriptores, micromedidores,
 lecturas, inventario, movimientos, parámetros, dosificaciones, actividades, usuarios, roles).
-Pasarlos a **DBML** da un diagrama visual y el SQL de PostgreSQL listo, evitando errores de
+Pasarlos a **DBML** da un diagrama visual y el SQL de MySQL listo, evitando errores de
 esquema antes de la API.
 
 ### Auth: JWT + roles/permisos desde el día uno
@@ -80,7 +80,7 @@ para no duplicar el color.
                                       │
                                       ├── Auth/JWT + roles
                                       ├── Lógica de negocio (reglas ACR)
-                                      └── PostgreSQL (esquema DBML)
+                                      └── MySQL (esquema DBML)
 ```
 
 Requisitos que el agente de código debe implementar sin que se los pidan dos veces:
@@ -93,7 +93,7 @@ Requisitos que el agente de código debe implementar sin que se los pidan dos ve
 | Validaciones de integridad (Pydantic/SQL) | RNF-06 integridad |
 | Historiales no borrables (soft delete / append-only donde aplique) | Regla de negocio 14 |
 | Exportación CSV/Excel/PDF en reportes | RF-33/RF-20/RF-36 |
-| Respaldos de PostgreSQL | RNF-15/RNF-16 |
+| Respaldos de MySQL | RNF-15/RNF-16 |
 | Interfaz responsive + modo claro (azul/blanco) | RNF-08/RNF-09 y marca |
 
 ---
@@ -106,7 +106,7 @@ Cada fase tiene un agente dedicado (ver `AGENTS.md` y `agents/`):
 |---|---|---|
 | 1 | Estructura, contexto, brief, docs, manual | orquestador (`AGENTS.md`) |
 | 2 | `datamodel/acr.dbml` (dbdiagram.io) | `agents/datamodel-agent.md` |
-| 3 | `api/` (FastAPI + PostgreSQL) | `agents/api-agent.md` |
+| 3 | `api/` (FastAPI + MySQL) | `agents/api-agent.md` |
 | 4 | `cms/` (SPA web) | `agents/cms-agent.md` |
 
 ---

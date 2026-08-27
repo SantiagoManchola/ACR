@@ -1,12 +1,12 @@
 # Plan Fase 2 — Modelo de datos (dbdiagram.io)
 
-> Entregable: `datamodel/acr.dbml` + SQL PostgreSQL. Agente: `agents/datamodel-agent.md`.
+> Entregable: `datamodel/acr.dbml` + SQL MySQL. Agente: `agents/datamodel-agent.md`.
 
 ---
 
 ## Objetivo
 Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual en
-[dbdiagram.io](https://dbdiagram.io/), y exportarlo a SQL de PostgreSQL listo para la API.
+[dbdiagram.io](https://dbdiagram.io/), y exportarlo a SQL de MySQL listo para la API.
 
 ## Entidades propuestas (borrador)
 
@@ -51,6 +51,18 @@ Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual
 ## Criterio de aceptación
 - [ ] El diagrama abre en dbdiagram.io sin errores.
 - [ ] Cubre todos los RF de `docs/01-alcance.md`.
-- [ ] SQL PostgreSQL generado y revisado.
-- [ ] Nombres y tipos acordes a PostgreSQL.
+- [ ] SQL MySQL generado y revisado.
+- [ ] Nombres y tipos acordes a MySQL.
 - [ ] Se entrega a la Fase 3 como fuente del esquema.
+
+## Implementación (MySQL)
+
+El diseño (`acr.dbml`, motor-agnóstico) se implementa en MySQL en un **único archivo
+editablE** que representa el estado actual del esquema:
+
+> `datamodel/migrations/acr_migrations.sql`
+
+- Contiene las `CREATE TABLE` de todas las tablas del modelo actual.
+- **No lleva bloques de versión ni tabla de control de versiones**: el historial lo gestiona
+  Git/GitHub. Cuando el modelo cambie, se edita directamente la tabla aquí y en `acr.dbml`.
+- Aplicar / recrear con: `mysql -u <user> -p acr < datamodel/migrations/acr_migrations.sql`

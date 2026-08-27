@@ -16,7 +16,7 @@
                                              └──────────┬───────────┘
                                                         │ SQL
                                                 ┌───────▼────────┐
-                                                │  PostgreSQL    │
+                                                │  MySQL    │
                                                 │  (esquema DBML)│
                                                 └────────────────┘
 ```
@@ -38,7 +38,7 @@
 - OpenAPI/Swagger automático.
 
 ### Datos (Fase 2)
-- PostgreSQL. Esquema definido en DBML (`datamodel/acr.dbml`), generado desde
+- MySQL. Esquema definido en DBML (`datamodel/acr.dbml`), generado desde
   `docs/01-alcance.md`.
 - Índices en campos de búsqueda/filtro (fecha, sector, micromedidor, parámetro).
 - Respaldos programados (RNF-15) y punto de recuperación (RNF-16).
@@ -55,6 +55,6 @@
 - Modelo pensado para pasar de ~1.124 a miles de micromedidores.
 
 ## 5. Entornos
-- Desarrollo: PostgreSQL local (Docker) + SPA en dev server.
+- Desarrollo: MySQL local (Docker) + SPA en dev server.
 - Producción: mismo stack; variables de entorno separadas; HTTPS obligatorio;
   respaldos automáticos. (Detalles a definir en Fase 3/4.)
