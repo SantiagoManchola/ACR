@@ -307,30 +307,8 @@ class MedicionOut(_ORM):
     observaciones: Optional[str] = None
 
 
-class ProductoCreate(BaseModel):
-    nombre: str = Field(min_length=1, max_length=120)
-    unidad: Optional[str] = None
-    cantidad_disponible: Decimal = Field(default=0, ge=0)
-    stock_minimo: Optional[Decimal] = None
-
-
-class ProductoOut(_ORM):
-    id: int
-    nombre: str
-    unidad: Optional[str] = None
-    cantidad_disponible: Decimal
-    stock_minimo: Optional[Decimal] = None
-
-
-class ProductoUpdate(BaseModel):
-    nombre: Optional[str] = Field(default=None, min_length=1, max_length=120)
-    unidad: Optional[str] = None
-    cantidad_disponible: Optional[Decimal] = Field(default=None, ge=0)
-    stock_minimo: Optional[Decimal] = None
-
-
 class DosificacionCreate(BaseModel):
-    producto_id: int
+    elemento_id: int
     cantidad: Decimal = Field(gt=0)
     fecha: Optional[date] = None
     hora: Optional[time] = None
@@ -340,7 +318,7 @@ class DosificacionCreate(BaseModel):
 
 class DosificacionOut(_ORM):
     id: int
-    producto_id: int
+    elemento_id: int
     cantidad: Decimal
     unidad: Optional[str] = None
     fecha: date

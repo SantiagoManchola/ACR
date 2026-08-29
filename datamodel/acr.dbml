@@ -37,6 +37,7 @@ enum categoria_tipo {
   herramienta
   laboratorio
   accesorio
+  insumo
 }
 
 // =============================================================
@@ -103,7 +104,7 @@ Table elementos_inventario {
   id              serial [pk]
   nombre          varchar(150) [not null]
   categoria_id    integer [not null, ref: > categorias_inventario.id]
-  tipo            varchar(50)  // subclasificación: tubería, codo, herramienta...
+  tipo            varchar(50)  // subclasificación: tubería, codo, químico... (los químicos son insumos → categoría tipo 'insumo')
   ubicacion       varchar(120) // planta de tratamiento u otra
   cantidad        numeric(12,2) [not null, default: 0] // existencias (RF-09)
   unidad          varchar(20)  // unidad de medida del elemento
@@ -245,20 +246,9 @@ Table mediciones {
   }
 }
 
-Table productos_quimicos {
-  id                serial [pk]
-  nombre            varchar(120) [not null]
-  unidad            varchar(20)
-  cantidad_disponible numeric(12,2) [not null, default: 0] // RF-44
-  created_by        integer [ref: > usuarios.id]
-  updated_by        integer [ref: > usuarios.id]
-  created_at        timestamptz [not null, default: `now()`]
-  updated_at        timestamptz [not null, default: `now()`]
-}
-
 Table dosificaciones {
   id                serial [pk]
-  producto_id       integer [not null, ref: > productos_quimicos.id] // RF-43
+  elemento_id       integer [not null, ref: > elementos_inventario.id] // RF-43 (salida de insumo/químico)
   cantidad          numeric(12,2) [not null] // RF-43
   fecha             date [not null]
   hora              time
@@ -269,7 +259,7 @@ Table dosificaciones {
   created_at        timestamptz [not null, default: `now()`]
   updated_at        timestamptz [not null, default: `now()`]
   indexes {
-    (fecha, producto_id)
+    (fecha, elemento_id)
   }
 }
 

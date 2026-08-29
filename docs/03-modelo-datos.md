@@ -35,8 +35,10 @@ Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual
 - `parametros_planta` (id, nombre, tipo_agua: cruda/tratada, unidad, valor_min, valor_max, estado)
 - `mediciones` (id, parametro_id, valor, fecha, hora, responsable_id, fuera_rango: bool,
   accion_correctiva, observaciones, created_by, timestamps)
-- `productos_quimicos` (id, nombre, unidad, cantidad_disponible, ...)
-- `dosificaciones` (id, producto_id, cantidad, fecha, hora, responsable_id, observaciones)
+- `elementos_inventario` ya incluye los insumos/químicos: se crea una categoría de tipo
+  `insumo` (p. ej. "Químicos") y los químicos son elementos de esa categoría.
+- `dosificaciones` (id, elemento_id → elementos_inventario, cantidad, fecha, hora,
+  responsable_id, observaciones) — punto de salida adicional del inventario.
 - `actividades_planta` (id, tipo, fecha, hora, responsable_id, estado, observaciones, evidencia)
 - `horas_servicio` (id, fecha, horas, responsable_id, observaciones)
 

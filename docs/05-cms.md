@@ -48,7 +48,7 @@ cms/
 | Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/refresh` |
 | Inventario | `/inventario/categorias`, `/inventario` (GET/POST/PATCH/DELETE), `/inventario/{id}/entrada|salida`, `/inventario/movimientos`, `/inventario/alertas` |
 | Micromedidores | `/suscriptores`, `/micromedidores`, `/lecturas`, `/consumo/sector/{sector}` |
-| Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/productos`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio` |
+| Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio` (los químicos son insumos dentro de `/inventario`) |
 | Reportes | `/reportes/inventario`, `/reportes/consumo`, `/reportes/planta` (`?formato=csv|xlsx|pdf`) |
 | Usuarios/Roles | `/usuarios`, `/usuarios/{id}`, `/usuarios/roles` |
 

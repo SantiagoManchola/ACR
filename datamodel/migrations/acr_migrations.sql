@@ -62,7 +62,7 @@ CREATE TABLE rol_permisos (
 CREATE TABLE categorias_inventario (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   nombre       VARCHAR(100) NOT NULL,
-  tipo         ENUM('equipo','herramienta','laboratorio','accesorio') NOT NULL,
+  tipo         ENUM('equipo','herramienta','laboratorio','accesorio','insumo') NOT NULL,
   descripcion  TEXT,
   created_by   INT,
   updated_by   INT,
@@ -185,6 +185,27 @@ CREATE TABLE lecturas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------- Planta de tratamiento ------------------------
+CREATE TABLE dosificaciones (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  elemento_id   INT NOT NULL,
+  cantidad      DECIMAL(12,2) NOT NULL,
+  unidad        VARCHAR(20),
+  fecha         DATE NOT NULL,
+  hora          TIME,
+  responsable_id INT,
+  observaciones TEXT,
+  created_by    INT,
+  updated_by    INT,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_dos_elem       (elemento_id),
+  KEY idx_dos_fecha_elem (fecha, elemento_id),
+  CONSTRAINT fk_dos_elem    FOREIGN KEY (elemento_id)   REFERENCES elementos_inventario(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_dos_resp    FOREIGN KEY (responsable_id) REFERENCES usuarios(id)            ON DELETE SET NULL,
+  CONSTRAINT fk_dos_created FOREIGN KEY (created_by)    REFERENCES usuarios(id)            ON DELETE SET NULL,
+  CONSTRAINT fk_dos_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id)            ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE parametros_planta (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   nombre       VARCHAR(80) NOT NULL,
@@ -221,41 +242,6 @@ CREATE TABLE mediciones (
   CONSTRAINT fk_med_resp     FOREIGN KEY (responsable_id) REFERENCES usuarios(id)           ON DELETE SET NULL,
   CONSTRAINT fk_med_created  FOREIGN KEY (created_by)    REFERENCES usuarios(id)           ON DELETE SET NULL,
   CONSTRAINT fk_med_updated  FOREIGN KEY (updated_by)    REFERENCES usuarios(id)           ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE productos_quimicos (
-  id                INT AUTO_INCREMENT PRIMARY KEY,
-  nombre            VARCHAR(120) NOT NULL,
-  unidad            VARCHAR(20),
-  cantidad_disponible DECIMAL(12,2) NOT NULL DEFAULT 0,
-  stock_minimo      DECIMAL(12,2),
-  created_by        INT,
-  updated_by        INT,
-  created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_pq_created FOREIGN KEY (created_by) REFERENCES usuarios(id) ON DELETE SET NULL,
-  CONSTRAINT fk_pq_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE dosificaciones (
-  id            INT AUTO_INCREMENT PRIMARY KEY,
-  producto_id   INT NOT NULL,
-  cantidad      DECIMAL(12,2) NOT NULL,
-  unidad        VARCHAR(20),
-  fecha         DATE NOT NULL,
-  hora          TIME,
-  responsable_id INT,
-  observaciones TEXT,
-  created_by    INT,
-  updated_by    INT,
-  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY idx_dos_prod       (producto_id),
-  KEY idx_dos_fecha_prod (fecha, producto_id),
-  CONSTRAINT fk_dos_prod    FOREIGN KEY (producto_id)  REFERENCES productos_quimicos(id) ON DELETE RESTRICT,
-  CONSTRAINT fk_dos_resp    FOREIGN KEY (responsable_id) REFERENCES usuarios(id)          ON DELETE SET NULL,
-  CONSTRAINT fk_dos_created FOREIGN KEY (created_by)    REFERENCES usuarios(id)          ON DELETE SET NULL,
-  CONSTRAINT fk_dos_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id)          ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE actividades_planta (

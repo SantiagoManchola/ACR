@@ -19,16 +19,16 @@ def fuera_de_rango(parametro: models.ParametroPlanta, valor: Decimal) -> bool:
     return False
 
 
-def aplicar_dosificacion(db: Session, producto: models.ProductoQuimico, cantidad: Decimal):
-    """Descuenta la cantidad dosificada del stock disponible del químico (punto 5)."""
-    disponible = Decimal(str(producto.cantidad_disponible or 0))
+def aplicar_dosificacion(db: Session, elemento: models.ElementoInventario, cantidad: Decimal):
+    """Descuenta la cantidad dosificada del stock del insumo/químico (punto 5)."""
+    disponible = Decimal(str(elemento.cantidad or 0))
     c = Decimal(str(cantidad))
     if c > disponible:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Stock insuficiente de '{producto.nombre}': disponible {disponible}, requerido {c}",
+            detail=f"Stock insuficiente de '{elemento.nombre}': disponible {disponible}, requerido {c}",
         )
-    producto.cantidad_disponible = disponible - c
+    elemento.cantidad = disponible - c
 
 
 def _rango_fechas(stmt, modelo, fecha_inicio, fecha_fin):
@@ -40,7 +40,7 @@ def _rango_fechas(stmt, modelo, fecha_inicio, fecha_fin):
 
 
 def filtrar_mediciones(db: Session, *, parametro_id=None, fuera_rango=None,
-                       fecha_inicio=None, fecha_fin=None):
+                        fecha_inicio=None, fecha_fin=None):
     stmt = select(models.Medicion)
     if parametro_id:
         stmt = stmt.where(models.Medicion.parametro_id == parametro_id)
@@ -58,10 +58,10 @@ def filtrar_actividades(db: Session, *, tipo=None, fecha_inicio=None, fecha_fin=
     return db.execute(stmt.order_by(models.ActividadPlanta.fecha.desc(), models.ActividadPlanta.hora.desc())).scalars().all()
 
 
-def filtrar_dosificaciones(db: Session, *, producto_id=None, fecha_inicio=None, fecha_fin=None):
+def filtrar_dosificaciones(db: Session, *, elemento_id=None, fecha_inicio=None, fecha_fin=None):
     stmt = select(models.Dosificacion)
-    if producto_id:
-        stmt = stmt.where(models.Dosificacion.producto_id == producto_id)
+    if elemento_id:
+        stmt = stmt.where(models.Dosificacion.elemento_id == elemento_id)
     stmt = _rango_fechas(stmt, models.Dosificacion, fecha_inicio, fecha_fin)
     return db.execute(stmt.order_by(models.Dosificacion.fecha.desc(), models.Dosificacion.hora.desc())).scalars().all()
 

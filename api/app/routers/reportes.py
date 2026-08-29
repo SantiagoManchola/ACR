@@ -41,17 +41,26 @@ def reporte_inventario(
     nombre: str | None = None,
     categoria_id: int | None = None,
     estado: str | None = None,
+    solo_insumos: bool = Query(default=False),
     formato: str = Query(default="csv"),
     db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
-    if tipo == "quimicos":
-        filas = db.execute(select(models.ProductoQuimico)).scalars().all()
-        datos = [{"id": p.id, "nombre": p.nombre, "unidad": p.unidad or "",
-                  "cantidad_disponible": p.cantidad_disponible} for p in filas]
-        columnas = ["id", "nombre", "unidad", "cantidad_disponible"]
-        return _responder(datos, columnas, formato, "reporte_quimicos", "Químicos ACR")
+    cats = {c.id: c for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
 
-    cats = {c.id: c.nombre for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
+    if tipo == "quimicos" or solo_insumos:
+        # Los químicos son elementos de inventario cuya categoría es de tipo 'insumo'.
+        stmt = select(models.ElementoInventario).join(
+            models.CategoriaInventario,
+            models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
+        ).where(models.CategoriaInventario.tipo == models.CategoriaTipo.insumo)
+        filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
+        datos = [{
+            "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id).nombre,
+            "unidad": e.unidad or "", "cantidad": e.cantidad, "minimo": e.minimo, "estado": e.estado,
+        } for e in filas]
+        columnas = ["id", "nombre", "categoria", "unidad", "cantidad", "minimo", "estado"]
+        return _responder(datos, columnas, formato, "reporte_insumos", "Insumos/Químicos ACR")
+
     stmt = select(models.ElementoInventario)
     if nombre:
         stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
@@ -61,18 +70,10 @@ def reporte_inventario(
         stmt = stmt.where(models.ElementoInventario.estado == estado)
     filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
     datos = [{
-        "tipo": "Elemento", "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id, "—"),
+        "tipo": "Elemento", "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id).nombre if e.categoria_id in cats else "—",
         "ubicacion": e.ubicacion or "", "cantidad": e.cantidad, "unidad": e.unidad or "",
         "minimo": e.minimo, "valor": e.valor, "estado": e.estado,
     } for e in filas]
-    # Los químicos también son parte del inventario (punto 2).
-    quimicos = db.execute(select(models.ProductoQuimico)).scalars().all()
-    for q in quimicos:
-        datos.append({
-            "tipo": "Químico", "id": q.id, "nombre": q.nombre, "categoria": "Químico",
-            "ubicacion": "", "cantidad": q.cantidad_disponible, "unidad": q.unidad or "",
-            "minimo": q.stock_minimo, "valor": "", "estado": "activo",
-        })
     columnas = ["tipo", "id", "nombre", "categoria", "ubicacion", "cantidad", "unidad", "minimo", "valor", "estado"]
     return _responder(datos, columnas, formato, "reporte_inventario", "Inventario ACR")
 
@@ -128,18 +129,23 @@ def reporte_planta(
     tipo: str = Query(default="mediciones"),
     parametro_id: int | None = None,
     fuera_rango: bool | None = None,
-    producto_id: int | None = None,
+    elemento_id: int | None = None,
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
     formato: str = Query(default="csv"),
     db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
     if tipo == "quimicos":
-        filas = db.execute(select(models.ProductoQuimico)).scalars().all()
-        datos = [{"id": p.id, "nombre": p.nombre, "unidad": p.unidad or "",
-                  "cantidad_disponible": p.cantidad_disponible} for p in filas]
-        columnas = ["id", "nombre", "unidad", "cantidad_disponible"]
-        return _responder(datos, columnas, formato, "reporte_quimicos_planta", "Químicos Planta ACR")
+        # Químicos = elementos de inventario de categoría tipo 'insumo'.
+        stmt = select(models.ElementoInventario).join(
+            models.CategoriaInventario,
+            models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
+        ).where(models.CategoriaInventario.tipo == models.CategoriaTipo.insumo)
+        filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
+        datos = [{"id": e.id, "nombre": e.nombre, "unidad": e.unidad or "",
+                  "cantidad": e.cantidad, "minimo": e.minimo} for e in filas]
+        columnas = ["id", "nombre", "unidad", "cantidad", "minimo"]
+        return _responder(datos, columnas, formato, "reporte_insumos_planta", "Insumos/Químicos Planta ACR")
 
     if tipo == "actividades":
         filas = svc_planta.filtrar_actividades(db, tipo=None, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
@@ -151,13 +157,13 @@ def reporte_planta(
         return _responder(datos, columnas, formato, "reporte_actividades", "Actividades Planta ACR")
 
     if tipo == "dosificaciones":
-        filas = svc_planta.filtrar_dosificaciones(db, producto_id=producto_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
-        prod_map = {p.id: p.nombre for p in db.execute(select(models.ProductoQuimico)).scalars().all()}
+        filas = svc_planta.filtrar_dosificaciones(db, elemento_id=elemento_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+        elem_map = {e.id: e.nombre for e in db.execute(select(models.ElementoInventario)).scalars().all()}
         datos = [{"id": d.id, "fecha": d.fecha, "hora": d.hora,
-                  "producto": prod_map.get(d.producto_id, d.producto_id),
+                  "insumo": elem_map.get(d.elemento_id, d.elemento_id),
                   "cantidad": d.cantidad, "unidad": d.unidad or "",
                   "observaciones": d.observaciones or ""} for d in filas]
-        columnas = ["id", "fecha", "hora", "producto", "cantidad", "unidad", "observaciones"]
+        columnas = ["id", "fecha", "hora", "insumo", "cantidad", "unidad", "observaciones"]
         return _responder(datos, columnas, formato, "reporte_dosificaciones", "Dosificaciones ACR")
 
     if tipo == "horas":

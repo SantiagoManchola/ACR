@@ -48,9 +48,11 @@ def aplicar_movimiento(
 
 
 def alertas(db: Session):
-    """Elementos y químicos por debajo de su mínimo configurado (RF-18).
+    """Elementos (incluidos insumos/químicos) por debajo de su mínimo (RF-18).
 
-    Los químicos también generan alertas a partir de ``stock_minimo`` (punto 2).
+    Los químicos ahora son ``elementos_inventario`` cuya categoría es de tipo
+    ``insumo``; por eso se evalúan junto con el resto del inventario usando
+    ``minimo`` (punto 2).
     """
     cats = {c.id: c.nombre for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
     stmt = select(models.ElementoInventario).where(
@@ -68,20 +70,5 @@ def alertas(db: Session):
             "cantidad": e.cantidad,
             "minimo": e.minimo,
             "unidad": e.unidad,
-        })
-
-    qstmt = select(models.ProductoQuimico).where(
-        models.ProductoQuimico.stock_minimo.isnot(None),
-        models.ProductoQuimico.cantidad_disponible <= models.ProductoQuimico.stock_minimo,
-    )
-    for q in db.execute(qstmt).scalars().all():
-        resultado.append({
-            "tipo": "Químico",
-            "id": q.id,
-            "nombre": q.nombre,
-            "categoria": "Químico",
-            "cantidad": q.cantidad_disponible,
-            "minimo": q.stock_minimo,
-            "unidad": q.unidad,
         })
     return resultado

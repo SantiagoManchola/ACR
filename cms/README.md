@@ -122,7 +122,7 @@ cms/
 - **Micromedidores:** `/suscriptores`, `/micromedidores`, `/lecturas`,
   `/consumo/sector/{sector}`
 - **Planta:** `/planta/parametros`, `/planta/mediciones`,
-  `/planta/mediciones/fuera-rango`, `/planta/productos`, `/planta/dosificaciones`,
+  `/planta/mediciones/fuera-rango`, `/planta/dosificaciones`,
   `/planta/actividades`, `/planta/horas-servicio`
 - **Reportes:** `/reportes/inventario`, `/reportes/consumo`, `/reportes/planta`
   (`?formato=csv|xlsx|pdf`)
@@ -154,8 +154,9 @@ Mejoras aplicadas tras la primera prueba en campo (Fase 4):
   Micromedidores, Planta y Reportes, invoca el `load` correspondiente del store.
 - **Sección Categorías (Inventario):** nueva pestaña con tabla y modal
   "Nueva categoría" (`store.createCategoria` → `POST /inventario/categorias`).
-- **Químicos (Planta):** nueva pestaña "Químicos" que lista productos con
-  `cantidad_disponible` y permite crear uno nuevo (`createProducto`).
+- **Químicos (Planta/Inventario):** pestaña "Químicos" que lista insumos
+  (elementos de categoría tipo `insumo`) con su `cantidad`/`minimo` y permite
+  crear uno nuevo (`createQuimico` → `POST /inventario`).
 - **Todas las mediciones (Planta):** la pestaña "Mediciones" muestra todas las
   mediciones (`loadMediciones`), con parámetro, tipo de agua, valor, unidad, fecha,
   hora, responsable y badge `fuera_rango`; la pestaña "Fuera de rango" actúa como filtro.

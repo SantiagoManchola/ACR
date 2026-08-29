@@ -102,45 +102,48 @@ async function reactivarElem(r) {
 
 function refreshInv() { return Promise.all([inv.loadCategorias(), inv.loadElementos(), inv.loadMovimientos(), inv.loadAlertas(), inv.loadQuimicos(), inv.loadDosificacionesInv()]) }
 
-/* Químicos / Dosificaciones */
-const emptyQuimico = () => ({ nombre: '', unidad: '', cantidad_disponible: 0, stock_minimo: '' })
+/* Químicos / Dosificaciones (los químicos son insumos dentro del inventario) */
+const insumoCatOptions = computed(() => inv.categorias.filter((c) => c.tipo === 'insumo').map((c) => ({ value: c.id, label: c.nombre })))
+const emptyQuimico = () => ({ nombre: '', categoria_id: null, unidad: '', cantidad: 0, minimo: '' })
 const quimicoForm = ref(emptyQuimico())
-const emptyDosis = () => ({ producto_id: null, cantidad: '', observaciones: '' })
+const emptyDosis = () => ({ elemento_id: null, cantidad: '', observaciones: '' })
 const dosisForm = ref(emptyDosis())
 
 const quimicoCols = [
   { key: 'nombre', label: 'Nombre' },
+  { key: 'categoria', label: 'Categoría' },
   { key: 'unidad', label: 'Unidad' },
-  { key: 'cantidad_disponible', label: 'Disponible', align: 'right', num: true },
-  { key: 'stock_minimo', label: 'Mínimo', align: 'right', num: true },
+  { key: 'cantidad', label: 'Disponible', align: 'right', num: true },
+  { key: 'minimo', label: 'Mínimo', align: 'right', num: true },
 ]
 const dosisCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'producto', label: 'Producto' },
+  { key: 'insumo', label: 'Insumo' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'observaciones', label: 'Observaciones' },
 ]
 const quimicoMap = computed(() => Object.fromEntries(inv.quimicos.map((q) => [q.id, q.nombre])))
 const quimicoOptionsDisp = computed(() => inv.quimicos.map((q) => ({
-  value: q.id, label: `${q.nombre} (${fmtNum(q.cantidad_disponible)} ${q.unidad || ''})`.trim(),
+  value: q.id, label: `${q.nombre} (${fmtNum(q.cantidad)} ${q.unidad || ''})`.trim(),
 })))
-const quimicosBajos = computed(() => inv.quimicos.filter((q) => q.stock_minimo != null && Number(q.cantidad_disponible) <= Number(q.stock_minimo)).length)
-const dosisUnidadInv = computed(() => { const q = inv.quimicos.find((x) => x.id === dosisForm.value.producto_id); return q?.unidad || '' })
+const quimicosBajos = computed(() => inv.quimicos.filter((q) => q.minimo != null && Number(q.cantidad) <= Number(q.minimo)).length)
+const dosisUnidadInv = computed(() => { const q = inv.quimicos.find((x) => x.id === dosisForm.value.elemento_id); return q?.unidad || '' })
 
 function openNewQuimico() { editingQuimico.value = null; quimicoForm.value = emptyQuimico(); quimicoError.value = ''; showQuimico.value = true }
-function openEditQuimico(r) { editingQuimico.value = r; quimicoForm.value = { ...r, stock_minimo: r.stock_minimo ?? '' }; quimicoError.value = ''; showQuimico.value = true }
+function openEditQuimico(r) { editingQuimico.value = r; quimicoForm.value = { ...r, categoria_id: r.categoria_id, minimo: r.minimo ?? '' }; quimicoError.value = ''; showQuimico.value = true }
 async function saveQuimico() {
   quimicoError.value = ''
-  if (!quimicoForm.value.nombre || !quimicoForm.value.unidad) { quimicoError.value = 'Nombre y unidad son obligatorios.'; return }
+  if (!quimicoForm.value.nombre || !quimicoForm.value.categoria_id) { quimicoError.value = 'Nombre y categoría (insumo) son obligatorios.'; return }
   saving.value = true
   try {
     const payload = {
       nombre: quimicoForm.value.nombre,
-      unidad: quimicoForm.value.unidad,
-      cantidad_disponible: Number(quimicoForm.value.cantidad_disponible) || 0,
-      stock_minimo: quimicoForm.value.stock_minimo === '' ? null : Number(quimicoForm.value.stock_minimo),
+      categoria_id: Number(quimicoForm.value.categoria_id),
+      unidad: quimicoForm.value.unidad || null,
+      cantidad: Number(quimicoForm.value.cantidad) || 0,
+      minimo: quimicoForm.value.minimo === '' ? null : Number(quimicoForm.value.minimo),
     }
     if (editingQuimico.value) await inv.updateQuimico(editingQuimico.value.id, payload)
     else await inv.createQuimico(payload)
@@ -152,11 +155,11 @@ async function saveQuimico() {
 function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
 async function saveDosis() {
   dosisError.value = ''
-  if (!dosisForm.value.producto_id || !dosisForm.value.cantidad || Number(dosisForm.value.cantidad) <= 0) { dosisError.value = 'Seleccione un producto y una cantidad mayor a 0.'; return }
+  if (!dosisForm.value.elemento_id || !dosisForm.value.cantidad || Number(dosisForm.value.cantidad) <= 0) { dosisError.value = 'Seleccione un insumo y una cantidad mayor a 0.'; return }
   saving.value = true
   try {
     await inv.createDosificacionInv({
-      producto_id: Number(dosisForm.value.producto_id),
+      elemento_id: Number(dosisForm.value.elemento_id),
       cantidad: Number(dosisForm.value.cantidad),
       observaciones: dosisForm.value.observaciones || null,
     })
@@ -347,10 +350,11 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       <h2 class="section-title">Químicos</h2>
       <DataTable :columns="quimicoCols" :rows="inv.quimicos" :loading="inv.loading" empty-text="Sin químicos registrados.">
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'cantidad_disponible'">{{ fmtNum(row.cantidad_disponible) }}</span>
-          <span v-else-if="col.key === 'stock_minimo'">
-            <span v-if="row.stock_minimo != null && Number(row.cantidad_disponible) <= Number(row.stock_minimo)" class="badge badge-bad">Stock bajo</span>
-            <span v-else-if="row.stock_minimo != null" class="badge badge-ok">OK</span>
+          <span v-if="col.key === 'categoria'">{{ catMap[row.categoria_id] || '—' }}</span>
+          <span v-else-if="col.key === 'cantidad'">{{ fmtNum(row.cantidad) }} {{ row.unidad || '' }}</span>
+          <span v-else-if="col.key === 'minimo'">
+            <span v-if="row.minimo != null && Number(row.cantidad) <= Number(row.minimo)" class="badge badge-bad">Stock bajo</span>
+            <span v-else-if="row.minimo != null" class="badge badge-ok">OK</span>
             <span v-else>—</span>
           </span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -372,7 +376,7 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       <h2 class="section-title">Dosificaciones</h2>
       <DataTable :columns="dosisCols" :rows="inv.dosificacionesInv" :loading="inv.loading" empty-text="Sin dosificaciones registradas.">
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'producto'">{{ quimicoMap[row.producto_id] || row.producto_id }}</span>
+          <span v-if="col.key === 'insumo'">{{ quimicoMap[row.elemento_id] || row.elemento_id }}</span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -491,6 +495,7 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
             <option value="herramienta">Herramienta</option>
             <option value="laboratorio">Laboratorio</option>
             <option value="accesorio">Accesorio</option>
+            <option value="insumo">Insumo</option>
           </select>
         </div>
         <div class="field" style="grid-column:span 2"><label>Descripción</label><textarea class="textarea" v-model="catForm.descripcion" /></div>
@@ -503,14 +508,17 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
 
     <ConfirmModal v-model:show="confirmShow" title="Inactivar elemento" :message="confirmMsg" confirm-text="Sí, inactivar" danger @confirm="doDelElem" />
 
-    <!-- QUÍMICO -->
+    <!-- QUÍMICO (insumo dentro del inventario) -->
     <BaseModal v-model="showQuimico" :title="editingQuimico ? 'Editar químico' : 'Nuevo químico'">
       <BaseAlert v-if="quimicoError" type="bad" class="mb-1">{{ quimicoError }}</BaseAlert>
       <div class="form-row">
         <div class="field" style="grid-column: span 2"><label>Nombre *</label><input class="input" v-model="quimicoForm.nombre" /></div>
-        <div class="field"><label>Unidad *</label><input class="input" v-model="quimicoForm.unidad" placeholder="Ej. kg, L" /></div>
-        <div class="field"><label>Cantidad disponible</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.cantidad_disponible" /></div>
-        <div class="field"><label>Stock mínimo</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.stock_minimo" /></div>
+        <div class="field" style="grid-column: span 2"><label>Categoría (insumo) *</label>
+          <SearchableSelect v-model="quimicoForm.categoria_id" :options="insumoCatOptions" placeholder="Seleccione la categoría de insumo…" />
+        </div>
+        <div class="field"><label>Unidad</label><input class="input" v-model="quimicoForm.unidad" placeholder="Ej. kg, L" /></div>
+        <div class="field"><label>Cantidad inicial</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.cantidad" /></div>
+        <div class="field"><label>Stock mínimo</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.minimo" /></div>
       </div>
       <template #footer>
         <button class="btn btn-ghost" @click="showQuimico = false">Cancelar</button>
@@ -522,11 +530,11 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
     <BaseModal v-model="showDosis" title="Registrar dosificación">
       <BaseAlert v-if="dosisError" type="bad" class="mb-1">{{ dosisError }}</BaseAlert>
       <div class="form-row">
-        <div class="field" style="grid-column: span 2"><label>Producto *</label>
-          <SearchableSelect v-model="dosisForm.producto_id" :options="quimicoOptionsDisp" placeholder="Seleccione un químico…" />
+        <div class="field" style="grid-column: span 2"><label>Insumo *</label>
+          <SearchableSelect v-model="dosisForm.elemento_id" :options="quimicoOptionsDisp" placeholder="Seleccione un químico/insumo…" />
         </div>
         <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" placeholder="0" v-model="dosisForm.cantidad" /></div>
-        <p class="hint" v-if="dosisUnidadInv" style="grid-column: span 2">Unidad del químico: <strong>{{ dosisUnidadInv }}</strong> (se guarda con la dosificación).</p>
+        <p class="hint" v-if="dosisUnidadInv" style="grid-column: span 2">Unidad del insumo: <strong>{{ dosisUnidadInv }}</strong> (se guarda con la dosificación).</p>
         <div class="field" style="grid-column: span 2"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones" /></div>
       </div>
       <template #footer>

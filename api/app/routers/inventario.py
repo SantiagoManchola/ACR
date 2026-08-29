@@ -62,6 +62,7 @@ def crear_categoria(
 def listar_elementos(
     nombre: str | None = None,
     categoria_id: int | None = None,
+    categoria_tipo: str | None = None,
     estado: str | None = None,
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
@@ -71,6 +72,11 @@ def listar_elementos(
         stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
     if categoria_id:
         stmt = stmt.where(models.ElementoInventario.categoria_id == categoria_id)
+    if categoria_tipo:
+        stmt = stmt.join(
+            models.CategoriaInventario,
+            models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
+        ).where(models.CategoriaInventario.tipo == categoria_tipo)
     if estado:
         stmt = stmt.where(models.ElementoInventario.estado == estado)
     return db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()

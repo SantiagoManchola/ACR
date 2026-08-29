@@ -14,8 +14,9 @@ y exportar a SQL MySQL.
    - Seguridad: `usuarios`, `roles`, `permisos`.
    - Inventario: `categorias_inventario`, `elementos_inventario`, `movimientos_inventario`.
    - Micromedidores: `suscriptores`, `micromedidores`, `lecturas`.
-   - Planta: `parametros_planta`, `mediciones`, `productos_quimicos`, `dosificaciones`,
-     `actividades_planta`, `horas_servicio`.
+   - Planta: `parametros_planta`, `mediciones`, `dosificaciones`,
+      `actividades_planta`, `horas_servicio`. Los químicos son `elementos_inventario`
+      cuya `categorias_inventario.tipo = 'insumo'` (p. ej. categoría "Químicos").
 3. Definí `Ref:` para todas las relaciones (suscriptor→micromedidores, micromedidor→lecturas,
    elemento→movimientos, parámetro→mediciones, producto→dosificaciones).
 4. Añadí campos de trazabilidad en tablas transaccionales: `created_by`, `updated_by`,

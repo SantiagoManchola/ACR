@@ -46,8 +46,9 @@
    - `usuarios`, `roles`, `permisos` (auth/admin).
    - `categorias_inventario`, `elementos_inventario`, `movimientos_inventario`.
    - `suscriptores`, `micromedidores`, `lecturas`, `novedades_lectura`.
-   - `parametros_planta`, `rangos_parametros`, `dosificaciones`, `productos_quimicos`,
-     `actividades_planta`, `horas_servicio`.
+   - `parametros_planta`, `rangos_parametros`, `dosificaciones`,
+      `actividades_planta`, `horas_servicio`. Los químicos viven en
+      `elementos_inventario` (categoría tipo `insumo`).
    - Tablas de auditoría donde aplique.
 3. Definir relaciones, claves, índices y `created_by`/`updated_by`/`created_at`.
 4. Exportar a `datamodel/acr.dbml` y generar SQL MySQL.

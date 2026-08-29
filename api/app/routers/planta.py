@@ -18,9 +18,7 @@ from ..schemas import (
     ParametroCreate,
     ParametroOut,
     ParametroUpdate,
-    ProductoCreate,
-    ProductoOut,
-    ProductoUpdate,
+    TipoMovimiento,
 )
 from ..security import get_current_user, get_db, require_role
 from ..services.common import sellar
@@ -134,78 +132,51 @@ def mediciones_fuera_rango(
     ).scalars().all()
 
 
-# ----------------------------- Productos / dosificación ----------------------
-@router.get("/productos", response_model=list[ProductoOut], summary="Listar productos químicos")
-def listar_productos(
-    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
-):
-    return db.execute(select(models.ProductoQuimico)).scalars().all()
-
-
-@router.post(
-    "/productos",
-    response_model=ProductoOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Crear producto químico",
-)
-def crear_producto(
-    payload: ProductoCreate,
-    db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
-):
-    p = models.ProductoQuimico(**payload.model_dump())
-    sellar(p, usuario, nuevo=True)
-    db.add(p)
-    db.commit()
-    db.refresh(p)
-    return p
-
-
-@router.patch("/productos/{pid}", response_model=ProductoOut, summary="Actualizar producto químico")
-def actualizar_producto(
-    pid: int,
-    payload: ProductoUpdate,
-    db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
-):
-    p = db.get(models.ProductoQuimico, pid)
-    if not p:
-        raise HTTPException(404, "Producto químico no encontrado")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(p, k, v)
-    sellar(p, usuario, nuevo=False)
-    db.commit()
-    db.refresh(p)
-    return p
-
-
+# ----------------------------- Insumos / dosificación ------------------------
 @router.post(
     "/dosificaciones",
     response_model=DosificacionOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Registrar dosificación",
+    summary="Registrar dosificación (salida de insumo/químico)",
 )
 def crear_dosificacion(
     payload: DosificacionCreate,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
 ):
-    producto = db.get(models.ProductoQuimico, payload.producto_id)
-    if not producto:
-        raise HTTPException(400, "producto_id inválido")
-    # Descuenta del stock disponible del químico (punto 5).
-    svc_planta.aplicar_dosificacion(db, producto, payload.cantidad)
+    elemento = db.get(models.ElementoInventario, payload.elemento_id)
+    if not elemento:
+        raise HTTPException(400, "elemento_id inválido")
+    # La dosificación es un punto de salida del inventario: descuenta del stock
+    # del insumo/químico (punto 5).
+    fecha = payload.fecha or date.today()
+    hora = payload.hora or datetime.now().time()
+    svc_planta.aplicar_dosificacion(db, elemento, payload.cantidad)
     d = models.Dosificacion(
-        producto_id=payload.producto_id,
+        elemento_id=payload.elemento_id,
         cantidad=payload.cantidad,
-        unidad=producto.unidad,
-        fecha=payload.fecha or date.today(),
-        hora=payload.hora or datetime.now().time(),
+        unidad=elemento.unidad,
+        fecha=fecha,
+        hora=hora,
         responsable_id=payload.responsable_id or usuario.id,
         observaciones=payload.observaciones,
     )
     sellar(d, usuario, nuevo=True)
     db.add(d)
+    # También registra la salida en el historial de movimientos del inventario
+    # para mantener la trazabilidad (la dosificación es un punto de salida).
+    movimiento = models.MovimientoInventario(
+        elemento_id=elemento.id,
+        tipo=TipoMovimiento.salida,
+        cantidad=payload.cantidad,
+        responsable_id=payload.responsable_id or usuario.id,
+        motivo="Dosificación",
+        observaciones=payload.observaciones,
+        fecha=fecha,
+        hora=hora,
+    )
+    sellar(movimiento, usuario, nuevo=True)
+    db.add(movimiento)
     db.commit()
     db.refresh(d)
     return d
@@ -213,13 +184,13 @@ def crear_dosificacion(
 
 @router.get("/dosificaciones", response_model=list[DosificacionOut], summary="Listar dosificaciones")
 def listar_dosificaciones(
-    producto_id: int | None = None,
+    elemento_id: int | None = None,
     fecha_inicio: date | None = None,
     fecha_fin: date | None = None,
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
     return svc_planta.filtrar_dosificaciones(
-        db, producto_id=producto_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+        db, elemento_id=elemento_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
     )
 
 

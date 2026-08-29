@@ -91,7 +91,7 @@ api/
   `GET /consumo/sector/{sector}`.
 - **Planta:** `GET/POST /planta/parametros`, `POST /planta/mediciones`
   (marca `fuera_rango`), `GET /planta/mediciones/fuera-rango`,
-  `GET/POST /planta/productos`, `POST /planta/dosificaciones`,
+  `POST /planta/dosificaciones` (los químicos son insumos en `/inventario`),
   `POST /planta/actividades`, `POST /planta/horas-servicio`.
 - **Reportes:** `GET /reportes/inventario`, `/reportes/consumo`,
   `/reportes/planta` con `?formato=csv|xlsx|pdf` (sin formato = JSON).

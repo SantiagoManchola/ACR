@@ -52,6 +52,7 @@ class CategoriaTipo(str, enum.Enum):
     herramienta = "herramienta"
     laboratorio = "laboratorio"
     accesorio = "accesorio"
+    insumo = "insumo"
 
 
 def _estado():
@@ -254,7 +255,7 @@ class Dosificacion(Base):
     __tablename__ = "dosificaciones"
 
     id = Column(Integer, primary_key=True)
-    producto_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
+    elemento_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
     cantidad = Column(Numeric(12, 2), nullable=False)
     unidad = Column(String(20))
     fecha = Column(Date, nullable=False)

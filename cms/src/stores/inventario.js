@@ -31,16 +31,16 @@ export const useInventarioStore = defineStore('inventario', {
       }
     },
     async loadQuimicos() {
-      const { data } = await client.get('/planta/productos')
+      const { data } = await client.get('/inventario', { params: { categoria_tipo: 'insumo' } })
       this.quimicos = data
     },
     async createQuimico(p) {
-      const { data } = await client.post('/planta/productos', p)
+      const { data } = await client.post('/inventario', p)
       this.quimicos.push(data)
       return data
     },
     async updateQuimico(id, p) {
-      const { data } = await client.patch(`/planta/productos/${id}`, p)
+      const { data } = await client.patch(`/inventario/${id}`, p)
       const i = this.quimicos.findIndex((q) => q.id === id)
       if (i >= 0) this.quimicos[i] = data
       return data

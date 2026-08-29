@@ -6,7 +6,6 @@ export const usePlantaStore = defineStore('planta', {
     parametros: [],
     mediciones: [],
     fueraRango: [],
-    productos: [],
     dosificaciones: [],
     actividades: [],
     horas: [],
@@ -34,9 +33,6 @@ export const usePlantaStore = defineStore('planta', {
       this.fueraRango = data
     },
 
-    async loadProductos() { const { data } = await client.get('/planta/productos'); this.productos = data },
-    async createProducto(p) { const { data } = await client.post('/planta/productos', p); this.productos.push(data); return data },
-    async updateProducto(id, p) { const { data } = await client.patch(`/planta/productos/${id}`, p); const i = this.productos.findIndex((x) => x.id === id); if (i >= 0) this.productos[i] = data; return data },
     async loadDosificaciones(filtros = {}) {
       const { data } = await client.get('/planta/dosificaciones', { params: filtros }); this.dosificaciones = data
     },
