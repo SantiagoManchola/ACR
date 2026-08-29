@@ -18,6 +18,7 @@ def aplicar_movimiento(
     motivo: str | None,
     observaciones: str | None,
     fecha,
+    hora=None,
 ):
     """Actualiza la cantidad del elemento y registra el movimiento."""
     c = Decimal(str(cantidad))
@@ -40,16 +41,47 @@ def aplicar_movimiento(
         motivo=motivo,
         observaciones=observaciones,
         fecha=fecha,
+        hora=hora,
     )
     db.add(movimiento)
     return movimiento
 
 
 def alertas(db: Session):
-    """Elementos cuyas existencias están por debajo del mínimo (RF-18)."""
+    """Elementos y químicos por debajo de su mínimo configurado (RF-18).
+
+    Los químicos también generan alertas a partir de ``stock_minimo`` (punto 2).
+    """
+    cats = {c.id: c.nombre for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
     stmt = select(models.ElementoInventario).where(
         models.ElementoInventario.estado == models.EstadoRegistro.activo,
         models.ElementoInventario.minimo.isnot(None),
         models.ElementoInventario.cantidad <= models.ElementoInventario.minimo,
     )
-    return db.execute(stmt).scalars().all()
+    resultado = []
+    for e in db.execute(stmt).scalars().all():
+        resultado.append({
+            "tipo": "Elemento",
+            "id": e.id,
+            "nombre": e.nombre,
+            "categoria": cats.get(e.categoria_id, "—"),
+            "cantidad": e.cantidad,
+            "minimo": e.minimo,
+            "unidad": e.unidad,
+        })
+
+    qstmt = select(models.ProductoQuimico).where(
+        models.ProductoQuimico.stock_minimo.isnot(None),
+        models.ProductoQuimico.cantidad_disponible <= models.ProductoQuimico.stock_minimo,
+    )
+    for q in db.execute(qstmt).scalars().all():
+        resultado.append({
+            "tipo": "Químico",
+            "id": q.id,
+            "nombre": q.nombre,
+            "categoria": "Químico",
+            "cantidad": q.cantidad_disponible,
+            "minimo": q.stock_minimo,
+            "unidad": q.unidad,
+        })
+    return resultado

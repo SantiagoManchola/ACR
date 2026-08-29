@@ -2,60 +2,101 @@
 
 > Entregable: `cms/` (SPA web). Agente: `agents/cms-agent.md`.
 > Depende de: Fase 3 (API). Consume los endpoints vía HTTP/JSON.
+> **Estado: ✅ implementado y compilando (`npm run build` OK).**
 
 ---
 
-## Objetivo
-Interfaz web donde los actores de Acuaricaurte registran y consultan la operación, con la
-paleta de marca azul `#2160AD` + blanco y usabilidad para perfiles con bajo nivel tecnológico.
+## Stack
 
-## Stack propuesto
-- **Vue 3 + Pinia + Vite** (o Next.js). SPA responsive (RNF-09).
-- Cliente HTTP (axios/fetch) con interceptor de JWT.
-- Tema con variables CSS: `--acr-azul:#2160AD`, `--acr-blanco:#FFFFFF`,
-  `--acr-gris:#EAF1FB`, `--acr-texto:#1B2733`.
-- Tablas con paginación y filtros; formularios de pasos mínimos (RNF-08).
+- **Vue 3 + Vite + Pinia + Vue Router + Axios** (JavaScript, sin TypeScript).
+- CSS propio con variables (sin librería de UI genérica). Sistema de diseño ACR en
+  `cms/src/styles/theme.css`.
+- Íconos SVG inline (`AppIcon.vue`), sin dependencias externas de iconos.
 
-## Estructura sugerida de `cms/`
+## Cómo ejecutar
+
+```bash
+cd cms
+cp .env.example .env          # VITE_API_URL=http://127.0.0.1:8000
+npm install
+npm run dev                   # http://localhost:5173
+npm run build                 # build de producción en dist/
+```
+
+El frontend llama **directo** a `VITE_API_URL` (CORS de la API es `*`, sin proxy).
+Requiere que la API FastAPI (Fase 3) esté corriendo en el puerto configurado.
+
+## Estructura de carpetas
+
 ```
 cms/
   src/
-    main.js
-    App.vue
-    router/            # rutas por rol
-    stores/            # Pinia: auth, inventario, micromedidores, planta
-    views/
-      Login.vue
-      Inventario/
-      Micromedidores/
-      Planta/
-      Reportes/
-      Admin/           # usuarios, roles
-    components/        # tablas, formularios, alertas
-    styles/theme.css   # paleta ACR
-  package.json
+    main.js                 # arranque Pinia + Router + interceptor HTTP
+    api/http.js             # cliente Axios + interceptor JWT + helpers
+    router/index.js         # rutas por rol + guardas (meta.roles / MODULOS)
+    stores/                 # pinia: auth, inventario, micromedidores, planta, usuarios
+    components/             # AppLayout, AppIcon, DataTable, BaseModal, BaseAlert, AppState
+    views/                  # Login, Dashboard, Inventario, Micromedidores, Planta,
+                           # Reportes, Usuarios, NotFound
+    styles/theme.css        # paleta y componentes ACR
 ```
 
-## Pantallas por módulo
-- **Login** + recuperación de sesión (guarda JWT).
-- **Inventario:** listado con existencias y alertas (rojo/ámbar); alta de elemento;
-  entrada/salida con responsable y motivo; historial de movimientos; reporte exportable.
-- **Micromedidores:** alta de suscriptor y medidor; registro de lectura mensual;
-  botón "usar promedio" cuando no hay lectura; novedades; histórico de consumo;
-  consulta por sector; reporte.
-- **Planta:** registro de parámetros (cruda/tratada) con detección visual fuera de rango;
-  dosificación de químicos; actividades; horas de servicio; acciones correctivas.
-- **Reportes:** filtros por fecha/sector/parámetro + exportar.
-- **Admin:** gestión de usuarios, roles y permisos.
+## Endpoints consumidos por módulo
 
-## Control de acceso en la vista
-- Menú y rutas visibles según rol del token (admin ve todo; operario solo planta;
-  fontanero ve solo entrada de lecturas vía administrativo o rol limitado).
-- La info de planta oculta para quien no tenga permiso (regla de negocio 12).
+| Módulo CMS | Endpoints de la API |
+|---|---|
+| Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/refresh` |
+| Inventario | `/inventario/categorias`, `/inventario` (GET/POST/PATCH/DELETE), `/inventario/{id}/entrada|salida`, `/inventario/movimientos`, `/inventario/alertas` |
+| Micromedidores | `/suscriptores`, `/micromedidores`, `/lecturas`, `/consumo/sector/{sector}` |
+| Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/productos`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio` |
+| Reportes | `/reportes/inventario`, `/reportes/consumo`, `/reportes/planta` (`?formato=csv|xlsx|pdf`) |
+| Usuarios/Roles | `/usuarios`, `/usuarios/{id}`, `/usuarios/roles` |
+
+## Control de acceso por rol
+
+El rol se obtiene de `GET /auth/me` (`user.rol.nombre`). El router y el sidebar
+ocultan rutas/menús según el rol:
+
+| Rol | Módulos visibles |
+|---|---|
+| `admin` | Inventario · Micromedidores · Planta · Reportes · **Usuarios y roles** |
+| `administrativo` | Inventario · Micromedidores · Planta · Reportes |
+| `operario` | Planta · Reportes |
+| `fontanero` | Micromedidores (registro de lecturas) |
+
+Rutas protegidas con `meta.roles`; ante 401 el interceptor limpia el token y
+redirige a `/login`. La info de planta queda oculta para quien no tiene permiso
+(regla de negocio 12).
+
+## Funcionalidad entregada
+
+1. **Login** OAuth2 form → `access_token` en Pinia + `localStorage` + interceptor Bearer.
+2. **Menú por rol** (sidebar y rutas filtradas en `router/index.js`).
+3. **Inventario**: listar categorías/elementos, crear/editar/soft-delete, entrada/salida
+   con motivo/observaciones, historial de movimientos y alertas bajo mínimo (rojo/ámbar).
+4. **Micromedidores**: CRUD suscriptores y medidores, registro de lectura (con opción
+   "lectura estimada / usar promedio histórico" y campo novedad), listado de lecturas,
+   consulta por sector y marcado de irregulares.
+5. **Planta**: parámetros (cruda/tratada) con rangos min/máx, mediciones con detección
+   visual `fuera_rango` (rojo) y acción correctiva, dosificaciones de químicos,
+   actividades (limpieza/desinfección/tanques/bocatoma) y horas de servicio, más la
+   vista de mediciones fuera de rango.
+6. **Reportes**: selector de módulo + filtros (fecha/sector/estado) y exportación
+   **CSV / Excel / PDF** vía `GET /reportes/...?formato=`.
+7. **Usuarios/Roles** (admin): listar/crear/desactivar usuarios y crear roles.
+8. Estados de UI: loading, vacío y error; responsive para uso en campo (móvil).
+
+## Nota de diseño (marca ACR)
+
+Tema con variables `--acr-azul:#2160AD`, `--acr-blanco:#FFFFFF`, `--acr-gris:#EAF1FB`,
+`--acr-texto:#1B2733` y semáforo `--acr-ok/--acr-warn/--acr-bad`. Cabecera azul, menú
+lateral, tarjetas, tablas, formularios y botones a medida (sin plantilla admin genérica).
+UI en español, acorde a Acuaricaurte (Ibagué, Tolima).
 
 ## Criterio de aceptación
-- [ ] Login funciona contra la API; sesión persiste.
-- [ ] Cada módulo permite crear/consultar/exportar.
-- [ ] Paleta azul/blanco aplicada y responsive en móvil.
-- [ ] Menús y acciones restringidos por rol.
-- [ ] Alertas de inventario y parámetros fuera de rango visibles.
+
+- [x] Login contra la API; sesión persiste; logout limpia token.
+- [x] Cada módulo permite crear/consultar/exportar.
+- [x] Paleta azul/blanco aplicada y responsive en móvil.
+- [x] Menús y acciones restringidos por rol.
+- [x] Alertas de inventario y parámetros fuera de rango visibles.

@@ -1,7 +1,8 @@
 """Router de micromedidores (RF-21..RF-36)."""
+from datetime import date, datetime
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,9 +30,22 @@ _ESCRITORES = ["admin", "administrativo"]
 # ----------------------------- Suscriptores ----------------------------------
 @router.get("/suscriptores", response_model=list[SuscriptorOut], summary="Listar suscriptores")
 def listar_suscriptores(
+    nombre: str | None = None,
+    identificacion: str | None = None,
+    sector: str | None = None,
+    tipo_usuario: str | None = None,
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
-    return db.execute(select(models.Suscriptor)).scalars().all()
+    return svc_mm.filtrar_suscriptores(
+        db, nombre=nombre, identificacion=identificacion, sector=sector, tipo_usuario=tipo_usuario
+    )
+
+
+@router.get("/suscriptores/sectores", response_model=list[str], summary="Sectores disponibles")
+def sectores(
+    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_mm.sectores_disponibles(db)
 
 
 @router.post(
@@ -61,6 +75,13 @@ def obtener_suscriptor(
     if not sus:
         raise HTTPException(404, "Suscriptor no encontrado")
     return sus
+
+
+@router.get("/suscriptores/{sid}/historial", summary="Historial de un suscriptor (micromedidores y lecturas)")
+def historial_suscriptor(
+    sid: int, db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_mm.historial_suscriptor(db, sid)
 
 
 @router.patch("/suscriptores/{sid}", response_model=SuscriptorOut, summary="Actualizar suscriptor")
@@ -97,9 +118,15 @@ def eliminar_suscriptor(
 # ----------------------------- Micromedidores --------------------------------
 @router.get("/micromedidores", response_model=list[MicromedidorOut], summary="Listar micromedidores")
 def listar_micromedidores(
+    serial: str | None = None,
+    suscriptor_id: int | None = None,
+    estado: str | None = None,
+    sector: str | None = None,
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
-    return db.execute(select(models.Micromedidor)).scalars().all()
+    return svc_mm.filtrar_micromedidores(
+        db, serial=serial, suscriptor_id=suscriptor_id, estado=estado, sector=sector
+    )
 
 
 @router.post(
@@ -131,6 +158,13 @@ def obtener_micromedidor(
     if not mm:
         raise HTTPException(404, "Micromedidor no encontrado")
     return mm
+
+
+@router.get("/micromedidores/{mid}/historial", summary="Historial de un micromedidor (lecturas)")
+def historial_micromedidor(
+    mid: int, db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_mm.historial_micromedidor(db, mid)
 
 
 @router.patch("/micromedidores/{mid}", response_model=MicromedidorOut, summary="Actualizar micromedidor")
@@ -182,13 +216,13 @@ def crear_lectura(
         raise HTTPException(400, "suscriptor_id inválido")
 
     consumo, promedio_usado = svc_mm.calcular_consumo(
-        db, payload.micromedidor_id, payload.lectura, payload.fecha
+        db, payload.micromedidor_id, payload.lectura, payload.fecha or date.today()
     )
     lectura = models.Lectura(
         micromedidor_id=payload.micromedidor_id,
         suscriptor_id=payload.suscriptor_id,
-        fecha=payload.fecha,
-        hora=payload.hora,
+        fecha=payload.fecha or date.today(),
+        hora=payload.hora or datetime.now().time(),
         lectura=payload.lectura,
         consumo=consumo,
         promedio_usado=promedio_usado,
@@ -207,18 +241,16 @@ def crear_lectura(
 def listar_lecturas(
     micromedidor_id: int | None = None,
     suscriptor_id: int | None = None,
-    fecha: str | None = None,
+    sector: str | None = None,
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
 ):
-    stmt = select(models.Lectura)
-    if micromedidor_id:
-        stmt = stmt.where(models.Lectura.micromedidor_id == micromedidor_id)
-    if suscriptor_id:
-        stmt = stmt.where(models.Lectura.suscriptor_id == suscriptor_id)
-    if fecha:
-        stmt = stmt.where(models.Lectura.fecha == fecha)
-    return db.execute(stmt.order_by(models.Lectura.fecha.desc())).scalars().all()
+    return svc_mm.filtrar_lecturas(
+        db, micromedidor_id=micromedidor_id, suscriptor_id=suscriptor_id,
+        sector=sector, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+    )
 
 
 @router.get(

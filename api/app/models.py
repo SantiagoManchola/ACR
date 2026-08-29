@@ -153,6 +153,7 @@ class MovimientoInventario(Base):
     motivo = Column(String(150))
     observaciones = Column(Text())
     fecha = Column(Date, nullable=False)
+    hora = Column(Time)
     created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
@@ -249,25 +250,13 @@ class Medicion(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
-class ProductoQuimico(Base):
-    __tablename__ = "productos_quimicos"
-
-    id = Column(Integer, primary_key=True)
-    nombre = Column(String(120), nullable=False)
-    unidad = Column(String(20))
-    cantidad_disponible = Column(Numeric(12, 2), nullable=False, server_default="0")
-    created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
-    updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
-    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
-
-
 class Dosificacion(Base):
     __tablename__ = "dosificaciones"
 
     id = Column(Integer, primary_key=True)
-    producto_id = Column(Integer, ForeignKey("productos_quimicos.id", ondelete="RESTRICT"), nullable=False)
+    producto_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
     cantidad = Column(Numeric(12, 2), nullable=False)
+    unidad = Column(String(20))
     fecha = Column(Date, nullable=False)
     hora = Column(Time)
     responsable_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))

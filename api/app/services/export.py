@@ -2,15 +2,20 @@
 import csv
 import io
 from datetime import date, datetime
+from enum import Enum
 from typing import Iterable, Sequence
 
 
 def _a_texto(v) -> str:
     if v is None:
         return ""
+    if isinstance(v, Enum):
+        return str(v.value)
+    if isinstance(v, bool):
+        return "Sí" if v else "No"
     if isinstance(v, (date, datetime)):
         return v.isoformat()
-    if isinstance(v, (int, float, str, bool)):
+    if isinstance(v, (int, float, str)):
         return str(v)
     if hasattr(v, "value"):  # Enum de SQLAlchemy/Pydantic
         return str(v.value)

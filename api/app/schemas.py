@@ -3,8 +3,9 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from .config import settings
 from .models import (
     CategoriaTipo,
     EstadoRegistro,
@@ -76,6 +77,11 @@ class UsuarioOut(_ORM):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def es_superadmin(self) -> bool:
+        return self.username == settings.admin_username
+
 
 # ----------------------------- Inventario ------------------------------------
 class CategoriaCreate(BaseModel):
@@ -138,6 +144,7 @@ class MovimientoCreate(BaseModel):
     motivo: Optional[str] = None
     observaciones: Optional[str] = None
     fecha: Optional[date] = None
+    hora: Optional[time] = None
 
 
 class MovimientoOut(_ORM):
@@ -149,6 +156,19 @@ class MovimientoOut(_ORM):
     motivo: Optional[str] = None
     observaciones: Optional[str] = None
     fecha: date
+    hora: Optional[time] = None
+
+
+class AlertaOut(BaseModel):
+    """Elemento de inventario o químico por debajo de su mínimo configurado."""
+
+    tipo: str
+    id: int
+    nombre: str
+    categoria: str
+    cantidad: Decimal
+    minimo: Optional[Decimal] = None
+    unidad: Optional[str] = None
 
 
 # ----------------------------- Micromedidores --------------------------------
@@ -215,7 +235,7 @@ class MicromedidorOut(_ORM):
 class LecturaCreate(BaseModel):
     micromedidor_id: int
     suscriptor_id: int
-    fecha: date
+    fecha: Optional[date] = None
     hora: Optional[time] = None
     lectura: Decimal
     responsable_id: Optional[int] = None
@@ -268,7 +288,7 @@ class ParametroOut(_ORM):
 class MedicionCreate(BaseModel):
     parametro_id: int
     valor: Decimal
-    fecha: date
+    fecha: Optional[date] = None
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
     accion_correctiva: Optional[str] = None
@@ -291,6 +311,7 @@ class ProductoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=120)
     unidad: Optional[str] = None
     cantidad_disponible: Decimal = Field(default=0, ge=0)
+    stock_minimo: Optional[Decimal] = None
 
 
 class ProductoOut(_ORM):
@@ -298,12 +319,20 @@ class ProductoOut(_ORM):
     nombre: str
     unidad: Optional[str] = None
     cantidad_disponible: Decimal
+    stock_minimo: Optional[Decimal] = None
+
+
+class ProductoUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    unidad: Optional[str] = None
+    cantidad_disponible: Optional[Decimal] = Field(default=None, ge=0)
+    stock_minimo: Optional[Decimal] = None
 
 
 class DosificacionCreate(BaseModel):
     producto_id: int
     cantidad: Decimal = Field(gt=0)
-    fecha: date
+    fecha: Optional[date] = None
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
     observaciones: Optional[str] = None
@@ -313,6 +342,7 @@ class DosificacionOut(_ORM):
     id: int
     producto_id: int
     cantidad: Decimal
+    unidad: Optional[str] = None
     fecha: date
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
@@ -321,7 +351,7 @@ class DosificacionOut(_ORM):
 
 class ActividadCreate(BaseModel):
     tipo: str = Field(min_length=1, max_length=80)
-    fecha: date
+    fecha: Optional[date] = None
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
     observaciones: Optional[str] = None
@@ -350,7 +380,7 @@ class ActividadOut(_ORM):
 
 
 class HoraServicioCreate(BaseModel):
-    fecha: date
+    fecha: Optional[date] = None
     horas: Decimal = Field(gt=0)
     responsable_id: Optional[int] = None
     observaciones: Optional[str] = None

@@ -1,0 +1,535 @@
+<script setup>
+import { onMounted, ref, computed, watch } from 'vue'
+import { usePlantaStore } from '../stores/planta'
+import { useUsuariosStore } from '../stores/usuarios'
+import DataTable from '../components/DataTable.vue'
+import BaseModal from '../components/BaseModal.vue'
+import BaseAlert from '../components/BaseAlert.vue'
+import AppIcon from '../components/AppIcon.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import { apiError, descargarReporte } from '../api/http'
+import { fmtNum, fmtRango } from '../utils/format'
+
+const planta = usePlantaStore()
+const usu = useUsuariosStore()
+const tab = ref('parametros')
+const saving = ref(false)
+
+const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => [p.id, p])))
+const quimicosBajos = computed(() => planta.productos.filter((q) => q.stock_minimo != null && Number(q.cantidad_disponible) <= Number(q.stock_minimo)).length)
+const userMap = computed(() => Object.fromEntries(usu.usuarios.map((u) => [u.id, u.nombre])))
+const userOptions = computed(() => usu.usuarios.map((u) => ({ value: u.id, label: u.nombre })))
+const paramOptions = computed(() => planta.parametros.map((p) => ({ value: p.id, label: p.nombre })))
+
+function buildFiltros(obj) {
+  const f = {}
+  for (const [k, v] of Object.entries(obj)) if (v !== '' && v !== null && v !== undefined) f[k] = v
+  return f
+}
+
+const formatoReporte = ref('csv')
+async function generarReporte(tipo, filtros = {}) {
+  const params = { tipo, formato: formatoReporte.value, ...buildFiltros(filtros) }
+  try { await descargarReporte('/reportes/planta', params, `reporte_${tipo}`) }
+  catch (e) { alert(apiError(e)) }
+}
+
+/* Filtros por pestaña */
+const medFiltro = ref({ parametro_id: '', fuera_rango: '', fecha_inicio: '', fecha_fin: '' })
+function filtrarMed() { planta.loadMediciones(buildFiltros(medFiltro.value)) }
+function limpiarMed() { medFiltro.value = { parametro_id: '', fuera_rango: '', fecha_inicio: '', fecha_fin: '' }; planta.loadMediciones() }
+
+const actFiltro = ref({ tipo: '', fecha_inicio: '', fecha_fin: '' })
+function filtrarAct() { planta.loadActividades(buildFiltros(actFiltro.value)) }
+function limpiarAct() { actFiltro.value = { tipo: '', fecha_inicio: '', fecha_fin: '' }; planta.loadActividades() }
+
+const dosisFiltro = ref({ producto_id: '', fecha_inicio: '', fecha_fin: '' })
+function filtrarDosis() { planta.loadDosificaciones(buildFiltros(dosisFiltro.value)) }
+function limpiarDosis() { dosisFiltro.value = { producto_id: '', fecha_inicio: '', fecha_fin: '' }; planta.loadDosificaciones() }
+
+const horaFiltro = ref({ fecha_inicio: '', fecha_fin: '' })
+function filtrarHora() { planta.loadHoras(buildFiltros(horaFiltro.value)) }
+function limpiarHora() { horaFiltro.value = { fecha_inicio: '', fecha_fin: '' }; planta.loadHoras() }
+
+function refreshPlanta() {
+  return Promise.all([
+    planta.loadParametros(), planta.loadProductos(), planta.loadMediciones(),
+    planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(),
+    planta.loadHoras(), usu.loadUsuarios(),
+  ])
+}
+
+/* Parámetros */
+const showParam = ref(false)
+const editingParam = ref(null)
+const paramError = ref('')
+const emptyParam = () => ({ nombre: '', tipo_agua: 'cruda', unidad: '', valor_min: '', valor_max: '' })
+const paramForm = ref(emptyParam())
+const paramCols = [
+  { key: 'nombre', label: 'Parámetro' },
+  { key: 'tipo_agua', label: 'Tipo de agua' },
+  { key: 'unidad', label: 'Unidad' },
+  { key: 'rango', label: 'Rango min / máx' },
+]
+function openNewParam() { editingParam.value = null; paramForm.value = emptyParam(); paramError.value = ''; showParam.value = true }
+function openEditParam(r) { editingParam.value = r; paramForm.value = { ...r, valor_min: r.valor_min ?? '', valor_max: r.valor_max ?? '' }; paramError.value = ''; showParam.value = true }
+async function saveParam() {
+  paramError.value = ''
+  if (!paramForm.value.nombre) { paramError.value = 'El nombre es obligatorio.'; return }
+  saving.value = true
+  try {
+    const p = { ...paramForm.value, valor_min: paramForm.value.valor_min === '' ? null : Number(paramForm.value.valor_min), valor_max: paramForm.value.valor_max === '' ? null : Number(paramForm.value.valor_max) }
+    if (editingParam.value) await planta.updateParametro(editingParam.value.id, p)
+    else await planta.createParametro(p)
+    showParam.value = false; await planta.loadParametros()
+  } catch (e) { paramError.value = apiError(e) } finally { saving.value = false }
+}
+
+/* Mediciones */
+const showMed = ref(false)
+const medError = ref('')
+const emptyMed = () => ({ parametro_id: null, valor: '', accion_correctiva: '', observaciones: '' })
+const medForm = ref(emptyMed())
+const medCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'hora', label: 'Hora' },
+  { key: 'parametro', label: 'Parámetro' },
+  { key: 'tipo_agua', label: 'Tipo de agua' },
+  { key: 'valor', label: 'Valor', align: 'right', num: true },
+  { key: 'unidad', label: 'Unidad' },
+  { key: 'responsable', label: 'Responsable' },
+  { key: 'fuera_rango', label: 'Estado' },
+  { key: 'accion_correctiva', label: 'Acción correctiva' },
+]
+function openNewMed() { medForm.value = emptyMed(); medError.value = ''; showMed.value = true }
+async function saveMed() {
+  medError.value = ''
+  if (!medForm.value.parametro_id || medForm.value.valor === '') { medError.value = 'Parámetro y valor son obligatorios.'; return }
+  saving.value = true
+  try {
+    await planta.createMedicion({
+      parametro_id: Number(medForm.value.parametro_id),
+      valor: Number(medForm.value.valor),
+      accion_correctiva: medForm.value.accion_correctiva || null,
+      observaciones: medForm.value.observaciones || null,
+    })
+    showMed.value = false; await Promise.all([planta.loadMediciones(), planta.loadFueraRango()])
+  } catch (e) { medError.value = apiError(e) } finally { saving.value = false }
+}
+
+/* Productos + Dosificaciones */
+const showProd = ref(false)
+const editingProd = ref(null)
+const showDosis = ref(false)
+const prodError = ref('')
+const dosisError = ref('')
+const emptyProd = () => ({ nombre: '', unidad: '', cantidad_disponible: 0, stock_minimo: '' })
+const prodForm = ref(emptyProd())
+const emptyDosis = () => ({ producto_id: null, cantidad: '', observaciones: '' })
+const dosisForm = ref(emptyDosis())
+const prodMap = computed(() => Object.fromEntries(planta.productos.map((p) => [p.id, p.nombre])))
+const prodOptionsDisp = computed(() => planta.productos.map((p) => ({
+  value: p.id, label: `${p.nombre} (${fmtNum(p.cantidad_disponible)} ${p.unidad || ''})`.trim(),
+})))
+const dosisUnidad = computed(() => {
+  const p = planta.productos.find((x) => x.id === dosisForm.value.producto_id)
+  return p?.unidad || ''
+})
+const prodCols = [
+  { key: 'nombre', label: 'Producto' },
+  { key: 'unidad', label: 'Unidad' },
+  { key: 'cantidad_disponible', label: 'Cantidad disponible', align: 'right', num: true },
+  { key: 'stock_minimo', label: 'Mínimo', align: 'right', num: true },
+  { key: 'estado', label: 'Estado' },
+]
+const dosisCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'hora', label: 'Hora' },
+  { key: 'producto', label: 'Producto' },
+  { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
+  { key: 'unidad', label: 'Unidad' },
+  { key: 'observaciones', label: 'Observaciones' },
+]
+function openNewProd() { editingProd.value = null; prodForm.value = emptyProd(); prodError.value = ''; showProd.value = true }
+function openEditProd(r) { editingProd.value = r; prodForm.value = { ...r, stock_minimo: r.stock_minimo ?? '' }; prodError.value = ''; showProd.value = true }
+async function saveProd() {
+  prodError.value = ''
+  if (!prodForm.value.nombre) { prodError.value = 'El nombre es obligatorio.'; return }
+  saving.value = true
+  try {
+    const payload = { nombre: prodForm.value.nombre, unidad: prodForm.value.unidad || null, cantidad_disponible: Number(prodForm.value.cantidad_disponible) || 0, stock_minimo: prodForm.value.stock_minimo === '' ? null : Number(prodForm.value.stock_minimo) }
+    if (editingProd.value) await planta.updateProducto(editingProd.value.id, payload)
+    else await planta.createProducto(payload)
+    showProd.value = false; await planta.loadProductos()
+  } catch (e) { prodError.value = apiError(e) } finally { saving.value = false }
+}
+function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
+async function saveDosis() {
+  dosisError.value = ''
+  if (!dosisForm.value.producto_id || !dosisForm.value.cantidad) { dosisError.value = 'Producto y cantidad son obligatorios.'; return }
+  saving.value = true
+  try {
+    await planta.createDosificacion({ producto_id: Number(dosisForm.value.producto_id), cantidad: Number(dosisForm.value.cantidad), observaciones: dosisForm.value.observaciones || null })
+     showDosis.value = false; await Promise.all([planta.loadDosificaciones(), planta.loadProductos()])
+  } catch (e) { dosisError.value = apiError(e) } finally { saving.value = false }
+}
+
+/* Actividades */
+const showAct = ref(false)
+const actError = ref('')
+const emptyAct = () => ({ tipo: '', responsable_id: null, observaciones: '', evidencia: '' })
+const actForm = ref(emptyAct())
+const actCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'hora', label: 'Hora' },
+  { key: 'tipo', label: 'Tipo' },
+  { key: 'responsable', label: 'Responsable' },
+  { key: 'estado', label: 'Estado' },
+  { key: 'observaciones', label: 'Observaciones' },
+  { key: 'evidencia', label: 'Evidencia' },
+]
+const actTipos = ['Limpieza', 'Desinfección', 'Tanques', 'Bocatoma', 'Mantenimiento']
+function openNewAct() { actForm.value = emptyAct(); actError.value = ''; showAct.value = true }
+async function saveAct() {
+  actError.value = ''
+  if (!actForm.value.tipo) { actError.value = 'El tipo de actividad es obligatorio.'; return }
+  saving.value = true
+  try {
+    await planta.createActividad({
+      ...actForm.value,
+      responsable_id: actForm.value.responsable_id ? Number(actForm.value.responsable_id) : null,
+    })
+    showAct.value = false; await planta.loadActividades()
+  } catch (e) { actError.value = apiError(e) } finally { saving.value = false }
+}
+
+/* Horas */
+const showHora = ref(false)
+const horaError = ref('')
+const emptyHora = () => ({ fecha: new Date().toISOString().slice(0, 10), horas: '', responsable_id: null, observaciones: '' })
+const horaForm = ref(emptyHora())
+const horaCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'horas', label: 'Horas', align: 'right', num: true },
+  { key: 'observaciones', label: 'Observaciones' },
+]
+function openNewHora() { horaForm.value = emptyHora(); horaError.value = ''; showHora.value = true }
+async function saveHora() {
+  horaError.value = ''
+  if (!horaForm.value.horas) { horaError.value = 'Ingrese las horas de servicio.'; return }
+  saving.value = true
+  try { await planta.createHoraServicio({ fecha: horaForm.value.fecha || new Date().toISOString().slice(0, 10), horas: Number(horaForm.value.horas), responsable_id: horaForm.value.responsable_id ? Number(horaForm.value.responsable_id) : null, observaciones: horaForm.value.observaciones || null }); showHora.value = false; await planta.loadHoras() }
+  catch (e) { horaError.value = apiError(e) } finally { saving.value = false }
+}
+
+onMounted(async () => {
+  await Promise.all([planta.loadParametros(), planta.loadProductos(), planta.loadMediciones(), planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(), planta.loadHoras(), usu.loadUsuarios()])
+})
+
+/* Al entrar a cada pestaña se refrescan sus datos para no mostrar información desactualizada
+   (punto 5: los químicos se actualizan al registrar dosificaciones / al abrir la pestaña). */
+watch(tab, (t) => {
+  if (t === 'productos') planta.loadProductos()
+  else if (t === 'dosificaciones') planta.loadDosificaciones()
+  else if (t === 'mediciones') planta.loadMediciones()
+  else if (t === 'actividades') planta.loadActividades()
+  else if (t === 'horas') planta.loadHoras()
+})
+</script>
+
+<template>
+  <div>
+    <h1>Planta de tratamiento</h1>
+    <p class="muted">Parámetros, mediciones, dosificaciones, actividades y horas de servicio (RF-37 a RF-54).</p>
+
+    <div class="toolbar" style="margin-bottom:1rem">
+      <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
+    </div>
+
+    <div class="tabs">
+      <button :class="{ active: tab === 'parametros' }" @click="tab = 'parametros'"><AppIcon name="flask" />Parámetros</button>
+      <button :class="{ active: tab === 'mediciones' }" @click="tab = 'mediciones'"><AppIcon name="drop" />Mediciones</button>
+      <button :class="{ active: tab === 'fuera' }" @click="tab = 'fuera'">
+        <AppIcon name="alert" />Fuera de rango
+        <span v-if="planta.fueraRango.length" class="badge badge-bad">{{ planta.fueraRango.length }}</span>
+      </button>
+      <button :class="{ active: tab === 'productos' }" @click="tab = 'productos'"><AppIcon name="flask" />Químicos
+        <span v-if="quimicosBajos" class="badge badge-bad">{{ quimicosBajos }}</span>
+      </button>
+      <button :class="{ active: tab === 'dosificaciones' }" @click="tab = 'dosificaciones'"><AppIcon name="package" />Dosificaciones</button>
+      <button :class="{ active: tab === 'actividades' }" @click="tab = 'actividades'"><AppIcon name="wrench" />Actividades</button>
+      <button :class="{ active: tab === 'horas' }" @click="tab = 'horas'"><AppIcon name="clock" />Horas de servicio</button>
+    </div>
+
+    <!-- PARÁMETROS -->
+    <div v-if="tab === 'parametros'">
+      <div class="toolbar"><button class="btn btn-primary" @click="openNewParam"><AppIcon name="plus" />Nuevo parámetro</button></div>
+      <DataTable :columns="paramCols" :rows="planta.parametros" :loading="planta.loading" empty-text="Sin parámetros configurados.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ row.tipo_agua }}</span>
+          <span v-else-if="col.key === 'rango'">{{ fmtRango(row.valor_min, row.valor_max) }}</span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+        <template #row-actions="{ row }">
+          <button class="btn btn-ghost btn-sm" @click="openEditParam(row)"><AppIcon name="edit" :size="16" /></button>
+        </template>
+      </DataTable>
+    </div>
+
+    <!-- MEDICIONES -->
+    <div v-else-if="tab === 'mediciones'">
+      <div class="filter-bar">
+        <div class="field"><label>Parámetro</label>
+          <select class="select" v-model="medFiltro.parametro_id"><option value="">Todos</option><option v-for="o in paramOptions" :key="o.value" :value="o.value">{{ o.label }}</option></select>
+        </div>
+        <div class="field"><label>Fuera de rango</label>
+          <select class="select" v-model="medFiltro.fuera_rango"><option value="">Todos</option><option value="true">Sí</option><option value="false">No</option></select>
+        </div>
+        <div class="field"><label>Desde</label><input class="input" type="date" v-model="medFiltro.fecha_inicio" /></div>
+        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="medFiltro.fecha_fin" /></div>
+        <button class="btn btn-primary" @click="filtrarMed">Filtrar</button>
+        <button class="btn btn-ghost" @click="limpiarMed">Limpiar</button>
+      </div>
+      <div class="toolbar"><button class="btn btn-primary" @click="openNewMed"><AppIcon name="plus" />Registrar medición</button></div>
+      <DataTable :columns="medCols" :rows="planta.mediciones" :loading="planta.loading" empty-text="Sin mediciones registradas.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'parametro'">{{ paramMap[row.parametro_id]?.nombre || row.parametro_id }}</span>
+          <span v-else-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ paramMap[row.parametro_id]?.tipo_agua || '—' }}</span>
+          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-else-if="col.key === 'unidad'">{{ paramMap[row.parametro_id]?.unidad || '—' }}</span>
+          <span v-else-if="col.key === 'fuera_rango'"><span class="badge" :class="row.fuera_rango ? 'badge-bad' : 'badge-ok'">{{ row.fuera_rango ? 'Fuera de rango' : 'En rango' }}</span></span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+      </DataTable>
+      <div class="report-bar">
+        <label>Formato</label>
+        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <button class="btn btn-ghost" @click="generarReporte('mediciones', medFiltro)">Generar reporte</button>
+      </div>
+    </div>
+
+    <!-- FUERA DE RANGO -->
+    <div v-else-if="tab === 'fuera'">
+      <BaseAlert v-if="!planta.fueraRango.length" type="ok" class="mb-1">No hay mediciones fuera de rango. ✔</BaseAlert>
+      <DataTable v-else :columns="medCols" :rows="planta.fueraRango" :loading="planta.loading" empty-text="Sin mediciones fuera de rango.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'parametro'">{{ paramMap[row.parametro_id]?.nombre || row.parametro_id }}</span>
+          <span v-else-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ paramMap[row.parametro_id]?.tipo_agua || '—' }}</span>
+          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-else-if="col.key === 'unidad'">{{ paramMap[row.parametro_id]?.unidad || '—' }}</span>
+          <span v-else-if="col.key === 'fuera_rango'"><span class="badge badge-bad">Fuera de rango</span></span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+      </DataTable>
+    </div>
+
+    <!-- PRODUCTOS QUÍMICOS -->
+    <div v-else-if="tab === 'productos'">
+      <div class="toolbar">
+        <button class="btn btn-primary" @click="openNewProd"><AppIcon name="plus" />Nuevo químico</button>
+        <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
+      </div>
+      <DataTable :columns="prodCols" :rows="planta.productos" :loading="planta.loading" empty-text="Sin productos químicos registrados.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'cantidad_disponible'" class="num">{{ fmtNum(row.cantidad_disponible) }} {{ row.unidad || '' }}</span>
+          <span v-else-if="col.key === 'stock_minimo'">
+            <span v-if="row.stock_minimo != null && Number(row.cantidad_disponible) <= Number(row.stock_minimo)" class="badge badge-bad">Stock bajo</span>
+            <span v-else-if="row.stock_minimo != null" class="badge badge-ok">OK</span>
+            <span v-else>—</span>
+          </span>
+          <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+        <template #row-actions="{ row }">
+          <button class="btn btn-ghost btn-sm" @click="openEditProd(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+        </template>
+      </DataTable>
+      <div class="report-bar">
+        <label>Formato</label>
+        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <button class="btn btn-ghost" @click="generarReporte('quimicos', {})">Generar reporte</button>
+      </div>
+    </div>
+
+    <!-- DOSIFICACIONES -->
+    <div v-else-if="tab === 'dosificaciones'">
+      <div class="filter-bar">
+        <div class="field"><label>Producto</label>
+          <select class="select" v-model="dosisFiltro.producto_id"><option value="">Todos</option><option v-for="p in planta.productos" :key="p.id" :value="p.id">{{ p.nombre }}</option></select>
+        </div>
+        <div class="field"><label>Desde</label><input class="input" type="date" v-model="dosisFiltro.fecha_inicio" /></div>
+        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="dosisFiltro.fecha_fin" /></div>
+        <button class="btn btn-primary" @click="filtrarDosis">Filtrar</button>
+        <button class="btn btn-ghost" @click="limpiarDosis">Limpiar</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn btn-primary" @click="openNewDosis"><AppIcon name="plus" />Registrar dosificación</button>
+        <button class="btn btn-ghost" @click="openNewProd"><AppIcon name="package" />Nuevo químico</button>
+      </div>
+      <DataTable :columns="dosisCols" :rows="planta.dosificaciones" :loading="planta.loading" empty-text="Sin dosificaciones registradas.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'producto'">{{ prodMap[row.producto_id] || row.producto_id }}</span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+      </DataTable>
+      <div class="report-bar">
+        <label>Formato</label>
+        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <button class="btn btn-ghost" @click="generarReporte('dosificaciones', dosisFiltro)">Generar reporte</button>
+      </div>
+    </div>
+
+    <!-- ACTIVIDADES -->
+    <div v-else-if="tab === 'actividades'">
+      <div class="filter-bar">
+        <div class="field"><label>Tipo</label>
+          <select class="select" v-model="actFiltro.tipo"><option value="">Todos</option><option v-for="t in actTipos" :key="t" :value="t">{{ t }}</option></select>
+        </div>
+        <div class="field"><label>Desde</label><input class="input" type="date" v-model="actFiltro.fecha_inicio" /></div>
+        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="actFiltro.fecha_fin" /></div>
+        <button class="btn btn-primary" @click="filtrarAct">Filtrar</button>
+        <button class="btn btn-ghost" @click="limpiarAct">Limpiar</button>
+      </div>
+      <div class="toolbar"><button class="btn btn-primary" @click="openNewAct"><AppIcon name="plus" />Registrar actividad</button></div>
+      <DataTable :columns="actCols" :rows="planta.actividades" :loading="planta.loading" empty-text="Sin actividades registradas.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
+          <span v-else-if="col.key === 'tipo'" style="text-transform:capitalize">{{ row.tipo }}</span>
+          <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+      </DataTable>
+      <div class="report-bar">
+        <label>Formato</label>
+        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <button class="btn btn-ghost" @click="generarReporte('actividades', actFiltro)">Generar reporte</button>
+      </div>
+    </div>
+
+    <!-- HORAS -->
+    <div v-else>
+      <div class="filter-bar">
+        <div class="field"><label>Desde</label><input class="input" type="date" v-model="horaFiltro.fecha_inicio" /></div>
+        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="horaFiltro.fecha_fin" /></div>
+        <button class="btn btn-primary" @click="filtrarHora">Filtrar</button>
+        <button class="btn btn-ghost" @click="limpiarHora">Limpiar</button>
+      </div>
+      <div class="toolbar"><button class="btn btn-primary" @click="openNewHora"><AppIcon name="plus" />Registrar horas</button></div>
+      <DataTable :columns="horaCols" :rows="planta.horas" :loading="planta.loading" empty-text="Sin horas de servicio registradas." />
+      <div class="report-bar">
+        <label>Formato</label>
+        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <button class="btn btn-ghost" @click="generarReporte('horas', horaFiltro)">Generar reporte</button>
+      </div>
+    </div>
+
+    <!-- MODALES -->
+    <BaseModal v-model="showParam" :title="editingParam ? 'Editar parámetro' : 'Nuevo parámetro'">
+      <BaseAlert v-if="paramError" type="bad" class="mb-1">{{ paramError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="paramForm.nombre" placeholder="Ej. pH, cloro residual, turbiedad" /></div>
+        <div class="field"><label>Tipo de agua</label>
+          <select class="select" v-model="paramForm.tipo_agua"><option value="cruda">Cruda</option><option value="tratada">Tratada</option></select>
+        </div>
+        <div class="field"><label>Unidad</label><input class="input" v-model="paramForm.unidad" placeholder="Ej. mg/L" /></div>
+        <div class="field"><label>Valor mínimo</label><input class="input" type="number" step="0.01" v-model="paramForm.valor_min" placeholder="0" /></div>
+        <div class="field"><label>Valor máximo</label><input class="input" type="number" step="0.01" v-model="paramForm.valor_max" placeholder="0" /></div>
+      </div>
+      <p class="hint">Los rangos mín/máx son configurables; la organización debe confirmarlos según normativa vigente.</p>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showParam = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveParam">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showMed" title="Registrar medición">
+      <BaseAlert v-if="medError" type="bad" class="mb-1">{{ medError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Parámetro *</label>
+          <SearchableSelect v-model="medForm.parametro_id" :options="paramOptions" placeholder="Seleccione…" />
+        </div>
+        <div class="field"><label>Valor *</label><input class="input" type="number" step="0.01" v-model="medForm.valor" placeholder="0" /></div>
+      </div>
+      <div class="field"><label>Acción correctiva</label><input class="input" v-model="medForm.accion_correctiva" placeholder="Qué se hizo ante un valor fuera de rango" /></div>
+      <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="medForm.observaciones"></textarea></div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showMed = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveMed">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showProd" :title="editingProd ? 'Editar químico' : 'Nuevo químico'">
+      <BaseAlert v-if="prodError" type="bad" class="mb-1">{{ prodError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="prodForm.nombre" /></div>
+        <div class="field"><label>Unidad</label><input class="input" v-model="prodForm.unidad" placeholder="Ej. kg, L" /></div>
+        <div class="field"><label>Cantidad disponible</label><input class="input" type="number" step="0.01" v-model="prodForm.cantidad_disponible" placeholder="0" /></div>
+        <div class="field"><label>Stock mínimo (alerta)</label><input class="input" type="number" step="0.01" v-model="prodForm.stock_minimo" placeholder="0" /></div>
+      </div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showProd = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveProd">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showDosis" title="Registrar dosificación">
+      <BaseAlert v-if="dosisError" type="bad" class="mb-1">{{ dosisError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Producto *</label>
+          <SearchableSelect v-model="dosisForm.producto_id" :options="prodOptionsDisp" placeholder="Seleccione un químico…" />
+        </div>
+        <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" v-model="dosisForm.cantidad" placeholder="0" /></div>
+        <p class="hint" v-if="dosisUnidad">Unidad del químico: <strong>{{ dosisUnidad }}</strong> (se guarda con la dosificación).</p>
+      </div>
+      <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones"></textarea></div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showDosis = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveDosis">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showAct" title="Registrar actividad de planta">
+      <BaseAlert v-if="actError" type="bad" class="mb-1">{{ actError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Tipo de actividad *</label>
+          <select class="select" v-model="actForm.tipo">
+            <option value="">Seleccione…</option>
+            <option v-for="t in actTipos" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column:span 2"><label>Responsable</label>
+          <SearchableSelect v-model="actForm.responsable_id" :options="userOptions" placeholder="Usuario responsable" clearable />
+        </div>
+      </div>
+      <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="actForm.observaciones"></textarea></div>
+      <div class="field"><label>Evidencia (referencia)</label><input class="input" v-model="actForm.evidencia" placeholder="Ej. código de foto, folio" /></div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showAct = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveAct">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showHora" title="Registrar horas de servicio">
+      <BaseAlert v-if="horaError" type="bad" class="mb-1">{{ horaError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field"><label>Fecha *</label><input class="input" type="date" v-model="horaForm.fecha" /></div>
+        <div class="field"><label>Horas *</label><input class="input" type="number" step="0.5" v-model="horaForm.horas" placeholder="0" /></div>
+        <div class="field" style="grid-column:span 2"><label>Responsable</label>
+          <SearchableSelect v-model="horaForm.responsable_id" :options="userOptions" placeholder="Usuario responsable" clearable />
+        </div>
+      </div>
+      <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="horaForm.observaciones"></textarea></div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showHora = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveHora">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+  </div>
+</template>

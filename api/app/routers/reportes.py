@@ -1,106 +1,180 @@
-"""Router de reportes con exportación CSV/XLSX/PDF (RF-20, RF-36, RF-54)."""
+"""Router de reportes con exportación CSV/XLSX/PDF (RF-20, RF-36, RF-54).
+
+Cada módulo expone su propio reporte filtrable:
+  /reportes/inventario?tipo=elementos|quimicos
+  /reportes/micromedidores?tipo=lecturas|suscriptores|micromedidores
+  /reportes/planta?tipo=mediciones|actividades|dosificaciones|horas|quimicos
+Todos aceptan `formato` (csv|xlsx|pdf, por defecto csv) y los filtros del módulo.
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from .. import models
 from ..security import get_current_user, get_db, require_role
-from ..services import export as svc_export
+from ..services import planta as svc_planta, micromedidores as svc_mm
+from ..services.export import a_csv, a_xlsx, a_pdf
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
 _LECTORES = ["admin", "administrativo", "operario"]
 
 
 def _responder(filas, columnas, formato: str, nombre: str, titulo: str):
-    formato = (formato or "json").lower()
-    if formato == "json":
-        from fastapi.encoders import jsonable_encoder
-
-        return filas
+    formato = (formato or "csv").lower()
     if formato == "csv":
-        contenido = svc_export.a_csv(filas, columnas)
-        return Response(content=contenido, media_type="text/csv",
+        return Response(content=a_csv(filas, columnas), media_type="text/csv",
                         headers={"Content-Disposition": f"attachment; filename={nombre}.csv"})
     if formato == "xlsx":
-        contenido = svc_export.a_xlsx(filas, columnas)
-        return Response(content=contenido,
+        return Response(content=a_xlsx(filas, columnas),
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f"attachment; filename={nombre}.xlsx"})
     if formato == "pdf":
-        contenido = svc_export.a_pdf(filas, columnas, titulo)
-        return Response(content=contenido, media_type="application/pdf",
+        return Response(content=a_pdf(filas, columnas, titulo), media_type="application/pdf",
                         headers={"Content-Disposition": f"attachment; filename={nombre}.pdf"})
     raise HTTPException(400, "formato debe ser csv, xlsx o pdf")
 
 
-@router.get("/inventario", summary="Reporte de inventario")
+# ----------------------------- INVENTARIO -----------------------------------
+@router.get("/inventario")
 def reporte_inventario(
-    formato: str = Query(default="json"),
-    db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    tipo: str = Query(default="elementos"),
+    nombre: str | None = None,
+    categoria_id: int | None = None,
+    estado: str | None = None,
+    formato: str = Query(default="csv"),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
-    filas = db.execute(select(models.ElementoInventario)).scalars().all()
-    datos = [
-        {
-            "id": e.id, "nombre": e.nombre, "categoria_id": e.categoria_id,
-            "ubicacion": e.ubicacion, "cantidad": e.cantidad, "unidad": e.unidad,
-            "minimo": e.minimo, "estado": e.estado,
-        }
-        for e in filas
-    ]
-    columnas = ["id", "nombre", "categoria_id", "ubicacion", "cantidad", "unidad", "minimo", "estado"]
+    if tipo == "quimicos":
+        filas = db.execute(select(models.ProductoQuimico)).scalars().all()
+        datos = [{"id": p.id, "nombre": p.nombre, "unidad": p.unidad or "",
+                  "cantidad_disponible": p.cantidad_disponible} for p in filas]
+        columnas = ["id", "nombre", "unidad", "cantidad_disponible"]
+        return _responder(datos, columnas, formato, "reporte_quimicos", "Químicos ACR")
+
+    cats = {c.id: c.nombre for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
+    stmt = select(models.ElementoInventario)
+    if nombre:
+        stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
+    if categoria_id:
+        stmt = stmt.where(models.ElementoInventario.categoria_id == categoria_id)
+    if estado:
+        stmt = stmt.where(models.ElementoInventario.estado == estado)
+    filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
+    datos = [{
+        "tipo": "Elemento", "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id, "—"),
+        "ubicacion": e.ubicacion or "", "cantidad": e.cantidad, "unidad": e.unidad or "",
+        "minimo": e.minimo, "valor": e.valor, "estado": e.estado,
+    } for e in filas]
+    # Los químicos también son parte del inventario (punto 2).
+    quimicos = db.execute(select(models.ProductoQuimico)).scalars().all()
+    for q in quimicos:
+        datos.append({
+            "tipo": "Químico", "id": q.id, "nombre": q.nombre, "categoria": "Químico",
+            "ubicacion": "", "cantidad": q.cantidad_disponible, "unidad": q.unidad or "",
+            "minimo": q.stock_minimo, "valor": "", "estado": "activo",
+        })
+    columnas = ["tipo", "id", "nombre", "categoria", "ubicacion", "cantidad", "unidad", "minimo", "valor", "estado"]
     return _responder(datos, columnas, formato, "reporte_inventario", "Inventario ACR")
 
 
-@router.get("/consumo", summary="Reporte de consumo de micromedidores")
-def reporte_consumo(
+# ----------------------------- MICROMEDIDORES --------------------------------
+@router.get("/micromedidores")
+def reporte_micromedidores(
+    tipo: str = Query(default="lecturas"),
+    nombre: str | None = None,
+    identificacion: str | None = None,
     sector: str | None = None,
-    formato: str = Query(default="json"),
-    db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    tipo_usuario: str | None = None,
+    micromedidor_id: int | None = None,
+    suscriptor_id: int | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+    formato: str = Query(default="csv"),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
-    stmt = (
-        select(models.Lectura, models.Suscriptor.nombre, models.Suscriptor.sector)
-        .join(models.Suscriptor, models.Lectura.suscriptor_id == models.Suscriptor.id)
-    )
-    if sector:
-        stmt = stmt.where(models.Suscriptor.sector == sector)
-    resultados = db.execute(stmt).all()
-    datos = [
-        {
-            "lectura_id": l.id, "fecha": l.fecha, "sector": sec, "suscriptor": nom,
-            "micromedidor_id": l.micromedidor_id, "lectura": l.lectura,
-            "consumo": l.consumo, "promedio_usado": l.promedio_usado,
-            "irregular": l.irregular,
-        }
-        for (l, nom, sec) in resultados
-    ]
-    columnas = ["lectura_id", "fecha", "sector", "suscriptor", "micromedidor_id",
-                "lectura", "consumo", "promedio_usado", "irregular"]
+    if tipo == "suscriptores":
+        filas = svc_mm.filtrar_suscriptores(
+            db, nombre=nombre, identificacion=identificacion, sector=sector, tipo_usuario=tipo_usuario)
+        datos = [{"id": s.id, "nombre": s.nombre, "identificacion": s.identificacion or "",
+                  "sector": s.sector or "", "tipo_usuario": s.tipo_usuario,
+                  "direccion": s.direccion or ""} for s in filas]
+        columnas = ["id", "nombre", "identificacion", "sector", "tipo_usuario", "direccion"]
+        return _responder(datos, columnas, formato, "reporte_suscriptores", "Suscriptores ACR")
+
+    if tipo == "micromedidores":
+        filas = svc_mm.filtrar_micromedidores(db, serial=nombre, suscriptor_id=suscriptor_id)
+        sus_map = {s.id: s.nombre for s in db.execute(select(models.Suscriptor)).scalars().all()}
+        datos = [{"id": m.id, "serial": m.serial, "tipo": m.tipo or "",
+                  "suscriptor": sus_map.get(m.suscriptor_id, "—"),
+                  "direccion": m.direccion or "", "fecha_instalacion": m.fecha_instalacion} for m in filas]
+        columnas = ["id", "serial", "tipo", "suscriptor", "direccion", "fecha_instalacion"]
+        return _responder(datos, columnas, formato, "reporte_micromedidores", "Micromedidores ACR")
+
+    # lecturas (consumo)
+    filas = svc_mm.filtrar_lecturas(db, micromedidor_id=micromedidor_id, suscriptor_id=suscriptor_id,
+                                    sector=sector, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+    sus_map = {s.id: s.nombre for s in db.execute(select(models.Suscriptor)).scalars().all()}
+    datos = [{"fecha": l.fecha, "suscriptor": sus_map.get(l.suscriptor_id, l.suscriptor_id),
+              "micromedidor_id": l.micromedidor_id, "lectura": l.lectura, "consumo": l.consumo,
+              "promedio_usado": l.promedio_usado, "irregular": l.irregular, "novedad": l.novedad or ""}
+             for l in filas]
+    columnas = ["fecha", "suscriptor", "micromedidor_id", "lectura", "consumo", "promedio_usado", "irregular", "novedad"]
     return _responder(datos, columnas, formato, "reporte_consumo", "Consumo micromedidores ACR")
 
 
-@router.get("/planta", summary="Reporte de planta de tratamiento")
+# ----------------------------- PLANTA ----------------------------------------
+@router.get("/planta")
 def reporte_planta(
+    tipo: str = Query(default="mediciones"),
+    parametro_id: int | None = None,
     fuera_rango: bool | None = None,
-    formato: str = Query(default="json"),
-    db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    producto_id: int | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
+    formato: str = Query(default="csv"),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
-    stmt = (
-        select(models.Medicion, models.ParametroPlanta.nombre)
-        .join(models.ParametroPlanta, models.Medicion.parametro_id == models.ParametroPlanta.id)
-    )
-    if fuera_rango is not None:
-        stmt = stmt.where(models.Medicion.fuera_rango.is_(fuera_rango))
-    resultados = db.execute(stmt).all()
-    datos = [
-        {
-            "medicion_id": m.id, "fecha": m.fecha, "parametro": nom, "valor": m.valor,
-            "fuera_rango": m.fuera_rango, "accion_correctiva": m.accion_correctiva,
-        }
-        for (m, nom) in resultados
-    ]
-    columnas = ["medicion_id", "fecha", "parametro", "valor", "fuera_rango", "accion_correctiva"]
+    if tipo == "quimicos":
+        filas = db.execute(select(models.ProductoQuimico)).scalars().all()
+        datos = [{"id": p.id, "nombre": p.nombre, "unidad": p.unidad or "",
+                  "cantidad_disponible": p.cantidad_disponible} for p in filas]
+        columnas = ["id", "nombre", "unidad", "cantidad_disponible"]
+        return _responder(datos, columnas, formato, "reporte_quimicos_planta", "Químicos Planta ACR")
+
+    if tipo == "actividades":
+        filas = svc_planta.filtrar_actividades(db, tipo=None, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+        usuario_map = {u.id: u.nombre for u in db.execute(select(models.Usuario)).scalars().all()}
+        datos = [{"id": a.id, "tipo": a.tipo, "fecha": a.fecha, "hora": a.hora,
+                  "responsable": usuario_map.get(a.responsable_id, "—"),
+                  "observaciones": a.observaciones or ""} for a in filas]
+        columnas = ["id", "tipo", "fecha", "hora", "responsable", "observaciones"]
+        return _responder(datos, columnas, formato, "reporte_actividades", "Actividades Planta ACR")
+
+    if tipo == "dosificaciones":
+        filas = svc_planta.filtrar_dosificaciones(db, producto_id=producto_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+        prod_map = {p.id: p.nombre for p in db.execute(select(models.ProductoQuimico)).scalars().all()}
+        datos = [{"id": d.id, "fecha": d.fecha, "hora": d.hora,
+                  "producto": prod_map.get(d.producto_id, d.producto_id),
+                  "cantidad": d.cantidad, "unidad": d.unidad or "",
+                  "observaciones": d.observaciones or ""} for d in filas]
+        columnas = ["id", "fecha", "hora", "producto", "cantidad", "unidad", "observaciones"]
+        return _responder(datos, columnas, formato, "reporte_dosificaciones", "Dosificaciones ACR")
+
+    if tipo == "horas":
+        filas = svc_planta.filtrar_horas(db, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+        usuario_map = {u.id: u.nombre for u in db.execute(select(models.Usuario)).scalars().all()}
+        datos = [{"id": h.id, "fecha": h.fecha, "horas": h.horas,
+                  "responsable": usuario_map.get(h.responsable_id, "—"),
+                  "observaciones": h.observaciones or ""} for h in filas]
+        columnas = ["id", "fecha", "horas", "responsable", "observaciones"]
+        return _responder(datos, columnas, formato, "reporte_horas", "Horas de servicio ACR")
+
+    # mediciones (por defecto)
+    filas = svc_planta.filtrar_mediciones(db, parametro_id=parametro_id, fuera_rango=fuera_rango,
+                                          fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
+    param_map = {p.id: p.nombre for p in db.execute(select(models.ParametroPlanta)).scalars().all()}
+    datos = [{"id": m.id, "fecha": m.fecha, "parametro": param_map.get(m.parametro_id, m.parametro_id),
+              "valor": m.valor, "fuera_rango": m.fuera_rango,
+              "accion_correctiva": m.accion_correctiva or ""} for m in filas]
+    columnas = ["id", "fecha", "parametro", "valor", "fuera_rango", "accion_correctiva"]
     return _responder(datos, columnas, formato, "reporte_planta", "Planta de tratamiento ACR")

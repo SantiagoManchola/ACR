@@ -75,17 +75,31 @@ Orden de arranque (ver `api/README.md` y `docs/04-api.md` para detalle):
 6. Validaciones Pydantic (RNF-06), trazabilidad `created_by`/`updated_by` (RNF-07),
    soft delete con `estado`, y exportación CSV/XLSX/PDF (RNF-19) en `/reportes/*`.
 
-## Paso 4 — CMS / Panel web (Fase 4)
+## Paso 4 — CMS / Panel web (Fase 4) — ✅ IMPLEMENTADO
 
-**Responsable:** `agents/cms-agent.md`.
+**Responsable:** `agents/cms-agent.md`. **Estado:** SPA completa en `cms/`,
+compila con `npm run build` y sirve en `http://localhost:5173`.
 
-1. Inicializar SPA (Vue 3 + Pinia + Vite) en `cms/`.
-2. Tema con variables `--acr-azul:#2160AD` y `--acr-blanco:#FFFFFF`.
-3. Login + control de menús por rol.
-4. CRUD de cada módulo consumiendo la API de la Fase 3.
-5. Pantallas de registro rápido para fontaneros/operarios (móvil).
-6. Pantallas de reportes con filtros y exportación.
-7. Indicadores/alertas (inventario bajo, parámetros fuera de rango).
+Pasos realizados:
+
+1. SPA inicializada (Vue 3 + Pinia + Vite) en `cms/` con tema de marca
+   `--acr-azul:#2160AD` / `--acr-blanco:#FFFFFF` (`src/styles/theme.css`).
+2. **Ejecutar el CMS apuntando a la API**: el CMS consume `VITE_API_URL`
+   (por defecto `http://127.0.0.1:8000`). Levantar primero la API (Fase 3) y luego
+   `cd cms && npm install && npm run dev`.
+3. Login OAuth2 (`/auth/login`) con token JWT en `localStorage` + interceptor Axios
+   que adjunta `Authorization: Bearer` y redirige a login ante 401.
+4. Control de menús y rutas por rol (admin / administrativo / operario / fontanero)
+   usando `GET /auth/me`.
+5. Módulos: Inventario (elementos, entradas/salidas, movimientos, alertas),
+   Micromedidores (suscriptores, medidores, lecturas, consumo por sector),
+   Planta (parámetros, mediciones con `fuera_rango`, dosificaciones, actividades,
+   horas de servicio), Reportes (filtros + exportar CSV/XLSX/PDF) y
+   Usuarios/Roles (admin).
+6. UI responsive para uso en campo (sidebar colapsable en móvil).
+7. Indicadores/alertas: existencias bajo mínimo (rojo/ámbar) y mediciones fuera de rango.
+
+Ver detalle en `docs/05-cms.md` y `cms/README.md`.
 
 ---
 

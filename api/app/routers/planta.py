@@ -1,5 +1,6 @@
 """Router de planta de tratamiento (RF-37..RF-54)."""
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import date, datetime
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +20,7 @@ from ..schemas import (
     ParametroUpdate,
     ProductoCreate,
     ProductoOut,
+    ProductoUpdate,
 )
 from ..security import get_current_user, get_db, require_role
 from ..services.common import sellar
@@ -94,9 +96,9 @@ def crear_medicion(
     med = models.Medicion(
         parametro_id=payload.parametro_id,
         valor=payload.valor,
-        fecha=payload.fecha,
-        hora=payload.hora,
-        responsable_id=usuario.id,
+        fecha=payload.fecha or date.today(),
+        hora=payload.hora or datetime.now().time(),
+        responsable_id=payload.responsable_id or usuario.id,
         fuera_rango=fuera,
         accion_correctiva=payload.accion_correctiva,
         observaciones=payload.observaciones,
@@ -106,6 +108,20 @@ def crear_medicion(
     db.commit()
     db.refresh(med)
     return med
+
+
+@router.get("/mediciones", response_model=list[MedicionOut], summary="Listar mediciones")
+def listar_mediciones(
+    parametro_id: int | None = None,
+    fuera_rango: bool | None = None,
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
+    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_planta.filtrar_mediciones(
+        db, parametro_id=parametro_id, fuera_rango=fuera_rango,
+        fecha_inicio=fecha_inicio, fecha_fin=fecha_fin,
+    )
 
 
 @router.get("/mediciones/fuera-rango", response_model=list[MedicionOut], summary="Mediciones fuera de rango")
@@ -145,6 +161,24 @@ def crear_producto(
     return p
 
 
+@router.patch("/productos/{pid}", response_model=ProductoOut, summary="Actualizar producto químico")
+def actualizar_producto(
+    pid: int,
+    payload: ProductoUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+):
+    p = db.get(models.ProductoQuimico, pid)
+    if not p:
+        raise HTTPException(404, "Producto químico no encontrado")
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(p, k, v)
+    sellar(p, usuario, nuevo=False)
+    db.commit()
+    db.refresh(p)
+    return p
+
+
 @router.post(
     "/dosificaciones",
     response_model=DosificacionOut,
@@ -156,14 +190,18 @@ def crear_dosificacion(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
 ):
-    if not db.get(models.ProductoQuimico, payload.producto_id):
+    producto = db.get(models.ProductoQuimico, payload.producto_id)
+    if not producto:
         raise HTTPException(400, "producto_id inválido")
+    # Descuenta del stock disponible del químico (punto 5).
+    svc_planta.aplicar_dosificacion(db, producto, payload.cantidad)
     d = models.Dosificacion(
         producto_id=payload.producto_id,
         cantidad=payload.cantidad,
-        fecha=payload.fecha,
-        hora=payload.hora,
-        responsable_id=usuario.id,
+        unidad=producto.unidad,
+        fecha=payload.fecha or date.today(),
+        hora=payload.hora or datetime.now().time(),
+        responsable_id=payload.responsable_id or usuario.id,
         observaciones=payload.observaciones,
     )
     sellar(d, usuario, nuevo=True)
@@ -171,6 +209,18 @@ def crear_dosificacion(
     db.commit()
     db.refresh(d)
     return d
+
+
+@router.get("/dosificaciones", response_model=list[DosificacionOut], summary="Listar dosificaciones")
+def listar_dosificaciones(
+    producto_id: int | None = None,
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
+    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_planta.filtrar_dosificaciones(
+        db, producto_id=producto_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+    )
 
 
 # ----------------------------- Actividades -----------------------------------
@@ -187,9 +237,9 @@ def crear_actividad(
 ):
     a = models.ActividadPlanta(
         tipo=payload.tipo,
-        fecha=payload.fecha,
-        hora=payload.hora,
-        responsable_id=usuario.id,
+        fecha=payload.fecha or date.today(),
+        hora=payload.hora or datetime.now().time(),
+        responsable_id=payload.responsable_id or usuario.id,
         observaciones=payload.observaciones,
         evidencia=payload.evidencia,
         estado=models.EstadoRegistro.activo,
@@ -199,6 +249,18 @@ def crear_actividad(
     db.commit()
     db.refresh(a)
     return a
+
+
+@router.get("/actividades", response_model=list[ActividadOut], summary="Listar actividades de planta")
+def listar_actividades(
+    tipo: str | None = None,
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
+    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_planta.filtrar_actividades(
+        db, tipo=tipo, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+    )
 
 
 @router.patch("/actividades/{aid}", response_model=ActividadOut, summary="Actualizar actividad")
@@ -232,9 +294,9 @@ def crear_horas(
     usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
 ):
     h = models.HoraServicio(
-        fecha=payload.fecha,
+        fecha=payload.fecha or date.today(),
         horas=payload.horas,
-        responsable_id=usuario.id,
+        responsable_id=payload.responsable_id or usuario.id,
         observaciones=payload.observaciones,
     )
     sellar(h, usuario, nuevo=True)
@@ -242,3 +304,12 @@ def crear_horas(
     db.commit()
     db.refresh(h)
     return h
+
+
+@router.get("/horas-servicio", response_model=list[HoraServicioOut], summary="Listar horas de servicio")
+def listar_horas(
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
+    db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
+):
+    return svc_planta.filtrar_horas(db, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)

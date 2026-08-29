@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from .. import models
+from ..config import settings
 from ..schemas import (
     RolCreate,
     RolOut,
@@ -127,6 +128,11 @@ def actualizar_usuario(
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
     datos = payload.model_dump(exclude_unset=True)
+    if usuario.username == settings.admin_username and datos.get("estado") == models.EstadoRegistro.inactivo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No se puede inactivar al superadministrador",
+        )
     password = datos.pop("password", None)
     if password:
         usuario.password_hash = hash_password(password)
@@ -146,6 +152,11 @@ def eliminar_usuario(
     usuario = db.get(models.Usuario, usuario_id)
     if not usuario:
         raise HTTPException(404, "Usuario no encontrado")
+    if usuario.username == settings.admin_username:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No se puede eliminar el superadministrador",
+        )
     usuario.estado = models.EstadoRegistro.inactivo
     sellar(usuario, admin, nuevo=False)
     db.commit()
