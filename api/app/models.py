@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     Time,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import relationship
@@ -128,9 +129,6 @@ class ElementoInventario(Base):
     id = Column(Integer, primary_key=True)
     nombre = Column(String(150), nullable=False)
     categoria_id = Column(Integer, ForeignKey("categorias_inventario.id", ondelete="RESTRICT"), nullable=False)
-    tipo = Column(String(50))
-    ubicacion = Column(String(120))
-    cantidad = Column(Numeric(12, 2), nullable=False, server_default="0")
     unidad = Column(String(20))
     proveedor = Column(String(150))
     valor = Column(Numeric(14, 2))
@@ -143,15 +141,68 @@ class ElementoInventario(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class StockUbicacion(Base):
+    """Existencias de un mismo producto en una ubicación concreta.
+
+    Permite que un producto esté en N ubicaciones sin duplicar la ficha del
+    elemento: se traslada stock del mismo producto entre ubicaciones.
+    """
+    __tablename__ = "stock_ubicacion"
+
+    id = Column(Integer, primary_key=True)
+    elemento_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="CASCADE"), nullable=False)
+    ubicacion_id = Column(Integer, ForeignKey("ubicaciones.id", ondelete="RESTRICT"), nullable=False)
+    cantidad = Column(Numeric(12, 2), nullable=False, server_default="0")
+    created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+    __table_args__ = (
+        UniqueConstraint("elemento_id", "ubicacion_id", name="uq_stock_elem_ubi"),
+    )
+
+
 class MovimientoInventario(Base):
     __tablename__ = "movimientos_inventario"
 
     id = Column(Integer, primary_key=True)
     elemento_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
+    ubicacion_id = Column(Integer, ForeignKey("ubicaciones.id", ondelete="RESTRICT"), nullable=False)
     tipo = Column(Enum(TipoMovimiento, name="tipo_movimiento", native_enum=True), nullable=False)
     cantidad = Column(Numeric(12, 2), nullable=False)
     responsable_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     motivo = Column(String(150))
+    observaciones = Column(Text())
+    fecha = Column(Date, nullable=False)
+    hora = Column(Time)
+    created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class Ubicacion(Base):
+    __tablename__ = "ubicaciones"
+
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String(100), nullable=False, unique=True)
+    descripcion = Column(Text())
+    created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class Traslado(Base):
+    """Mueve stock del MISMO producto entre dos ubicaciones."""
+    __tablename__ = "traslados"
+
+    id = Column(Integer, primary_key=True)
+    elemento_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
+    ubicacion_origen_id = Column(Integer, ForeignKey("ubicaciones.id", ondelete="RESTRICT"), nullable=False)
+    ubicacion_destino_id = Column(Integer, ForeignKey("ubicaciones.id", ondelete="RESTRICT"), nullable=False)
+    cantidad = Column(Numeric(12, 2), nullable=False)
+    responsable_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     observaciones = Column(Text())
     fecha = Column(Date, nullable=False)
     hora = Column(Time)

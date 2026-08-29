@@ -1,5 +1,6 @@
 """Router de inventario (RF-06..RF-20)."""
 from datetime import date, datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select
@@ -15,7 +16,13 @@ from ..schemas import (
     ElementoUpdate,
     MovimientoCreate,
     MovimientoOut,
+    StockUbicacionOut,
     TipoMovimiento,
+    TrasladoCreate,
+    TrasladoOut,
+    UbicacionCreate,
+    UbicacionOut,
+    UbicacionUpdate,
 )
 from ..security import get_current_user, get_db, require_role
 from ..services.common import sellar
@@ -25,6 +32,41 @@ router = APIRouter(prefix="/inventario", tags=["Inventario"])
 
 _LECTORES = ["admin", "administrativo", "operario"]
 _ESCRITORES = ["admin", "administrativo"]
+
+
+# ----------------------------- Helpers de salida -------------------------------
+def _mapa_ubicaciones(db: Session) -> dict:
+    return {u.id: u.nombre for u in db.execute(select(models.Ubicacion)).scalars().all()}
+
+
+def _stock_elemento(db: Session, elemento_id: int, ubs: dict):
+    rows = db.execute(
+        select(models.StockUbicacion).where(models.StockUbicacion.elemento_id == elemento_id)
+    ).scalars().all()
+    stock = [
+        StockUbicacionOut(
+            id=s.id, elemento_id=s.elemento_id, ubicacion_id=s.ubicacion_id,
+            ubicacion=ubs.get(s.ubicacion_id), cantidad=s.cantidad,
+        )
+        for s in rows
+    ]
+    total = sum((Decimal(str(s.cantidad)) for s in rows), Decimal("0"))
+    return stock, total
+
+
+def _elemento_out(db: Session, e: models.ElementoInventario, ubicacion_id: int | None = None):
+    ubs = _mapa_ubicaciones(db)
+    stock, total = _stock_elemento(db, e.id, ubs)
+    if ubicacion_id:
+        f = next((s for s in stock if s.ubicacion_id == ubicacion_id), None)
+        cantidad = f.cantidad if f else Decimal("0")
+    else:
+        cantidad = total
+    return ElementoOut(
+        id=e.id, nombre=e.nombre, categoria_id=e.categoria_id, cantidad=cantidad,
+        unidad=e.unidad, proveedor=e.proveedor, valor=e.valor, minimo=e.minimo,
+        estado=e.estado, observaciones=e.observaciones, stock=stock,
+    )
 
 
 # ----------------------------- Categorías ------------------------------------
@@ -63,6 +105,8 @@ def listar_elementos(
     nombre: str | None = None,
     categoria_id: int | None = None,
     categoria_tipo: str | None = None,
+    categoria_nombre: str | None = None,
+    ubicacion_id: int | None = None,
     estado: str | None = None,
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
@@ -72,14 +116,52 @@ def listar_elementos(
         stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
     if categoria_id:
         stmt = stmt.where(models.ElementoInventario.categoria_id == categoria_id)
-    if categoria_tipo:
+    if categoria_tipo or categoria_nombre:
         stmt = stmt.join(
             models.CategoriaInventario,
             models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
-        ).where(models.CategoriaInventario.tipo == categoria_tipo)
+        )
+    if categoria_tipo:
+        stmt = stmt.where(models.CategoriaInventario.tipo == categoria_tipo)
+    if categoria_nombre:
+        stmt = stmt.where(models.CategoriaInventario.nombre.ilike(f"%{categoria_nombre}%"))
     if estado:
         stmt = stmt.where(models.ElementoInventario.estado == estado)
-    return db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
+    if ubicacion_id:
+        stmt = stmt.join(
+            models.StockUbicacion,
+            models.StockUbicacion.elemento_id == models.ElementoInventario.id,
+        ).where(models.StockUbicacion.ubicacion_id == ubicacion_id)
+    elementos = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
+
+    ubs = _mapa_ubicaciones(db)
+    stock_por_elem: dict[int, list] = {}
+    for s in db.execute(select(models.StockUbicacion)).scalars().all():
+        stock_por_elem.setdefault(s.elemento_id, []).append(s)
+
+    resultado = []
+    for e in elementos:
+        rows = stock_por_elem.get(e.id, [])
+        stock = [
+            StockUbicacionOut(
+                id=s.id, elemento_id=s.elemento_id, ubicacion_id=s.ubicacion_id,
+                ubicacion=ubs.get(s.ubicacion_id), cantidad=s.cantidad,
+            )
+            for s in rows
+        ]
+        total = sum((Decimal(str(s.cantidad)) for s in rows), Decimal("0"))
+        cantidad = total
+        if ubicacion_id:
+            f = next((s for s in stock if s.ubicacion_id == ubicacion_id), None)
+            cantidad = f.cantidad if f else Decimal("0")
+        resultado.append(
+            ElementoOut(
+                id=e.id, nombre=e.nombre, categoria_id=e.categoria_id, cantidad=cantidad,
+                unidad=e.unidad, proveedor=e.proveedor, valor=e.valor, minimo=e.minimo,
+                estado=e.estado, observaciones=e.observaciones, stock=stock,
+            )
+        )
+    return resultado
 
 
 @router.post(
@@ -95,17 +177,142 @@ def crear_elemento(
 ):
     if not db.get(models.CategoriaInventario, payload.categoria_id):
         raise HTTPException(400, "categoria_id inválido")
-    elem = models.ElementoInventario(**payload.model_dump())
+    if payload.ubicacion_id and not db.get(models.Ubicacion, payload.ubicacion_id):
+        raise HTTPException(400, "ubicacion_id inválido")
+    elem = models.ElementoInventario(
+        nombre=payload.nombre,
+        categoria_id=payload.categoria_id,
+        unidad=payload.unidad,
+        proveedor=payload.proveedor,
+        valor=payload.valor,
+        minimo=payload.minimo,
+        observaciones=payload.observaciones,
+    )
     sellar(elem, usuario, nuevo=True)
     db.add(elem)
+    db.flush()
+    if payload.ubicacion_id and payload.cantidad_inicial is not None:
+        db.add(models.StockUbicacion(
+            elemento_id=elem.id, ubicacion_id=payload.ubicacion_id,
+            cantidad=payload.cantidad_inicial,
+        ))
     db.commit()
     db.refresh(elem)
-    return elem
+    return _elemento_out(db, elem)
+
+
+# ----------------------------- Ubicaciones ------------------------------------
+@router.get("/ubicaciones", response_model=list[UbicacionOut], summary="Listar ubicaciones")
+def listar_ubicaciones(
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(require_role(_LECTORES)),
+):
+    return db.execute(select(models.Ubicacion).order_by(models.Ubicacion.nombre)).scalars().all()
+
+
+@router.post(
+    "/ubicaciones",
+    response_model=UbicacionOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Crear ubicación",
+)
+def crear_ubicacion(
+    payload: UbicacionCreate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+):
+    ub = models.Ubicacion(**payload.model_dump())
+    sellar(ub, usuario, nuevo=True)
+    db.add(ub)
+    db.commit()
+    db.refresh(ub)
+    return ub
+
+
+@router.patch("/ubicaciones/{uid}", response_model=UbicacionOut, summary="Actualizar ubicación")
+def actualizar_ubicacion(
+    uid: int,
+    payload: UbicacionUpdate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+):
+    ub = db.get(models.Ubicacion, uid)
+    if not ub:
+        raise HTTPException(404, "Ubicación no encontrada")
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        setattr(ub, k, v)
+    sellar(ub, usuario, nuevo=False)
+    db.commit()
+    db.refresh(ub)
+    return ub
+
+
+# ----------------------------- Traslados ---------------------------------------
+@router.get("/traslados", response_model=list[TrasladoOut], summary="Listar traslados")
+def listar_traslados(
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(require_role(_LECTORES)),
+):
+    ubs = _mapa_ubicaciones(db)
+    filas = db.execute(
+        select(models.Traslado).order_by(
+            models.Traslado.fecha.desc(), models.Traslado.hora.desc()
+        )
+    ).scalars().all()
+    return [
+        TrasladoOut(
+            id=t.id, elemento_id=t.elemento_id,
+            ubicacion_origen_id=t.ubicacion_origen_id, ubicacion_destino_id=t.ubicacion_destino_id,
+            ubicacion_origen=ubs.get(t.ubicacion_origen_id),
+            ubicacion_destino=ubs.get(t.ubicacion_destino_id),
+            cantidad=t.cantidad, responsable_id=t.responsable_id,
+            observaciones=t.observaciones, fecha=t.fecha, hora=t.hora,
+        )
+        for t in filas
+    ]
+
+
+@router.post(
+    "/traslados",
+    response_model=TrasladoOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Registrar traslado entre ubicaciones (mismo producto)",
+)
+def crear_traslado(
+    payload: TrasladoCreate,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+):
+    elemento = db.get(models.ElementoInventario, payload.elemento_id)
+    if not elemento:
+        raise HTTPException(400, "elemento_id inválido")
+    if not db.get(models.Ubicacion, payload.ubicacion_origen_id):
+        raise HTTPException(400, "ubicacion_origen_id inválida")
+    if not db.get(models.Ubicacion, payload.ubicacion_destino_id):
+        raise HTTPException(400, "ubicacion_destino_id inválida")
+    if payload.ubicacion_origen_id == payload.ubicacion_destino_id:
+        raise HTTPException(400, "El origen y el destino deben ser distintos")
+    fecha = payload.fecha or date.today()
+    hora = payload.hora or datetime.now().time()
+    traslado = svc_inventario.aplicar_traslado(
+        db, elemento, payload.ubicacion_origen_id, payload.ubicacion_destino_id,
+        payload.cantidad, usuario.id, payload.observaciones, fecha, hora,
+    )
+    sellar(traslado, usuario, nuevo=True)
+    db.commit()
+    db.refresh(traslado)
+    ubs = _mapa_ubicaciones(db)
+    return TrasladoOut(
+        id=traslado.id, elemento_id=traslado.elemento_id,
+        ubicacion_origen_id=traslado.ubicacion_origen_id, ubicacion_destino_id=traslado.ubicacion_destino_id,
+        ubicacion_origen=ubs.get(traslado.ubicacion_origen_id),
+        ubicacion_destino=ubs.get(traslado.ubicacion_destino_id),
+        cantidad=traslado.cantidad, responsable_id=traslado.responsable_id,
+        observaciones=traslado.observaciones, fecha=traslado.fecha, hora=traslado.hora,
+    )
 
 
 # ----------------------------- Movimientos y alertas (literales) -------------
-# Importante: estas rutas literales deben registrarse ANTES de `/{elemento_id}`
-# para no ser capturadas por el parámetro de ruta.
 @router.get("/movimientos", response_model=list[MovimientoOut], summary="Historial de movimientos")
 def movimientos(
     elemento_id: int | None = None,
@@ -115,10 +322,24 @@ def movimientos(
     stmt = select(models.MovimientoInventario)
     if elemento_id:
         stmt = stmt.where(models.MovimientoInventario.elemento_id == elemento_id)
-    return db.execute(stmt.order_by(models.MovimientoInventario.fecha.desc())).scalars().all()
+    stmt = stmt.order_by(
+        models.MovimientoInventario.fecha.desc(),
+        models.MovimientoInventario.hora.desc(),
+    )
+    ubs = _mapa_ubicaciones(db)
+    filas = db.execute(stmt).scalars().all()
+    return [
+        MovimientoOut(
+            id=m.id, elemento_id=m.elemento_id, ubicacion_id=m.ubicacion_id,
+            ubicacion=ubs.get(m.ubicacion_id), tipo=m.tipo, cantidad=m.cantidad,
+            responsable_id=m.responsable_id, motivo=m.motivo, observaciones=m.observaciones,
+            fecha=m.fecha, hora=m.hora,
+        )
+        for m in filas
+    ]
 
 
-@router.get("/alertas", response_model=list[AlertaOut], summary="Elementos y químicos bajo mínimo")
+@router.get("/alertas", response_model=list[AlertaOut], summary="Existencias bajo mínimo")
 def alertas(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
@@ -136,7 +357,7 @@ def obtener_elemento(
     elem = db.get(models.ElementoInventario, elemento_id)
     if not elem:
         raise HTTPException(404, "Elemento no encontrado")
-    return elem
+    return _elemento_out(db, elem)
 
 
 @router.patch("/{elemento_id}", response_model=ElementoOut, summary="Actualizar elemento")
@@ -154,7 +375,7 @@ def actualizar_elemento(
     sellar(elem, usuario, nuevo=False)
     db.commit()
     db.refresh(elem)
-    return elem
+    return _elemento_out(db, elem)
 
 
 @router.delete("/{elemento_id}", summary="Eliminar elemento (soft delete)")
@@ -186,7 +407,7 @@ def entrada(
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
     svc_inventario.aplicar_movimiento(
-        db, elem, TipoMovimiento.entrada, float(payload.cantidad),
+        db, elem, payload.ubicacion_id, TipoMovimiento.entrada, float(payload.cantidad),
         usuario.id, payload.motivo, payload.observaciones, fecha, hora,
     )
     sellar(elem, usuario, nuevo=False)
@@ -196,7 +417,13 @@ def entrada(
         .where(models.MovimientoInventario.elemento_id == elemento_id)
         .order_by(models.MovimientoInventario.id.desc())
     ).scalars().first()
-    return mov
+    ubs = _mapa_ubicaciones(db)
+    return MovimientoOut(
+        id=mov.id, elemento_id=mov.elemento_id, ubicacion_id=mov.ubicacion_id,
+        ubicacion=ubs.get(mov.ubicacion_id), tipo=mov.tipo, cantidad=mov.cantidad,
+        responsable_id=mov.responsable_id, motivo=mov.motivo, observaciones=mov.observaciones,
+        fecha=mov.fecha, hora=mov.hora,
+    )
 
 
 @router.post("/{elemento_id}/salida", response_model=MovimientoOut, summary="Registrar salida")
@@ -212,7 +439,7 @@ def salida(
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
     svc_inventario.aplicar_movimiento(
-        db, elem, TipoMovimiento.salida, float(payload.cantidad),
+        db, elem, payload.ubicacion_id, TipoMovimiento.salida, float(payload.cantidad),
         usuario.id, payload.motivo, payload.observaciones, fecha, hora,
     )
     sellar(elem, usuario, nuevo=False)
@@ -222,4 +449,10 @@ def salida(
         .where(models.MovimientoInventario.elemento_id == elemento_id)
         .order_by(models.MovimientoInventario.id.desc())
     ).scalars().first()
-    return mov
+    ubs = _mapa_ubicaciones(db)
+    return MovimientoOut(
+        id=mov.id, elemento_id=mov.elemento_id, ubicacion_id=mov.ubicacion_id,
+        ubicacion=ubs.get(mov.ubicacion_id), tipo=mov.tipo, cantidad=mov.cantidad,
+        responsable_id=mov.responsable_id, motivo=mov.motivo, observaciones=mov.observaciones,
+        fecha=mov.fecha, hora=mov.hora,
+    )

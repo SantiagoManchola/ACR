@@ -9,6 +9,8 @@ export const useInventarioStore = defineStore('inventario', {
     alertas: [],
     quimicos: [],
     dosificacionesInv: [],
+    ubicaciones: [],
+    traslados: [],
     loading: false,
     error: null,
   }),
@@ -18,6 +20,12 @@ export const useInventarioStore = defineStore('inventario', {
       this.categorias = data
     },
     async createCategoria(p) { const { data } = await client.post('/inventario/categorias', p); this.categorias.push(data); return data },
+    async loadUbicaciones() {
+      const { data } = await client.get('/inventario/ubicaciones')
+      this.ubicaciones = data
+    },
+    async createUbicacion(p) { const { data } = await client.post('/inventario/ubicaciones', p); this.ubicaciones.push(data); return data },
+    async updateUbicacion(id, p) { const { data } = await client.patch(`/inventario/ubicaciones/${id}`, p); const i = this.ubicaciones.findIndex((u) => u.id === id); if (i >= 0) this.ubicaciones[i] = data; return data },
     async loadElementos(filtros = {}) {
       this.loading = true
       this.error = null
@@ -31,7 +39,7 @@ export const useInventarioStore = defineStore('inventario', {
       }
     },
     async loadQuimicos() {
-      const { data } = await client.get('/inventario', { params: { categoria_tipo: 'insumo' } })
+      const { data } = await client.get('/inventario', { params: { categoria_tipo: 'insumo', categoria_nombre: 'Químicos' } })
       this.quimicos = data
     },
     async createQuimico(p) {
@@ -52,6 +60,15 @@ export const useInventarioStore = defineStore('inventario', {
     async createDosificacionInv(p) {
       const { data } = await client.post('/planta/dosificaciones', p)
       await this.loadQuimicos()
+      return data
+    },
+    async loadTraslados() {
+      const { data } = await client.get('/inventario/traslados')
+      this.traslados = data
+    },
+    async createTraslado(p) {
+      const { data } = await client.post('/inventario/traslados', p)
+      this.traslados.unshift(data)
       return data
     },
     async createElemento(payload) {

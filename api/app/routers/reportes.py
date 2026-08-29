@@ -6,6 +6,8 @@ Cada módulo expone su propio reporte filtrable:
   /reportes/planta?tipo=mediciones|actividades|dosificaciones|horas|quimicos
 Todos aceptan `formato` (csv|xlsx|pdf, por defecto csv) y los filtros del módulo.
 """
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
@@ -34,6 +36,17 @@ def _responder(filas, columnas, formato: str, nombre: str, titulo: str):
     raise HTTPException(400, "formato debe ser csv, xlsx o pdf")
 
 
+def _stock_resumen(db, e):
+    """Total de existencias y detalle por ubicación de un elemento de inventario."""
+    ubs = {u.id: u.nombre for u in db.execute(select(models.Ubicacion)).scalars().all()}
+    rows = db.execute(
+        select(models.StockUbicacion).where(models.StockUbicacion.elemento_id == e.id)
+    ).scalars().all()
+    total = sum((Decimal(str(s.cantidad)) for s in rows), Decimal("0"))
+    detalle = ", ".join(f"{ubs.get(s.ubicacion_id, s.ubicacion_id)}: {s.cantidad}" for s in rows) or "—"
+    return total, detalle
+
+
 # ----------------------------- INVENTARIO -----------------------------------
 @router.get("/inventario")
 def reporte_inventario(
@@ -47,18 +60,30 @@ def reporte_inventario(
 ):
     cats = {c.id: c for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
 
+    def _stock(e):
+        return _stock_resumen(db, e)
+
     if tipo == "quimicos" or solo_insumos:
-        # Los químicos son elementos de inventario cuya categoría es de tipo 'insumo'.
+        # Los químicos son elementos de inventario cuya categoría es de tipo 'insumo'
+        # y cuyo nombre identifica la sub-categoría "Químicos" (no todo insumo lo es).
         stmt = select(models.ElementoInventario).join(
             models.CategoriaInventario,
             models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
-        ).where(models.CategoriaInventario.tipo == models.CategoriaTipo.insumo)
+        ).where(
+            models.CategoriaInventario.tipo == models.CategoriaTipo.insumo,
+            models.CategoriaInventario.nombre.ilike("%quimic%"),
+        )
         filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
-        datos = [{
-            "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id).nombre,
-            "unidad": e.unidad or "", "cantidad": e.cantidad, "minimo": e.minimo, "estado": e.estado,
-        } for e in filas]
-        columnas = ["id", "nombre", "categoria", "unidad", "cantidad", "minimo", "estado"]
+        datos = []
+        for e in filas:
+            total, detalle = _stock(e)
+            datos.append({
+                "id": e.id, "nombre": e.nombre,
+                "categoria": cats.get(e.categoria_id).nombre,
+                "unidad": e.unidad or "", "cantidad": total, "minimo": e.minimo,
+                "ubicacion": detalle, "estado": e.estado,
+            })
+        columnas = ["id", "nombre", "categoria", "unidad", "cantidad", "minimo", "ubicacion", "estado"]
         return _responder(datos, columnas, formato, "reporte_insumos", "Insumos/Químicos ACR")
 
     stmt = select(models.ElementoInventario)
@@ -69,11 +94,15 @@ def reporte_inventario(
     if estado:
         stmt = stmt.where(models.ElementoInventario.estado == estado)
     filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
-    datos = [{
-        "tipo": "Elemento", "id": e.id, "nombre": e.nombre, "categoria": cats.get(e.categoria_id).nombre if e.categoria_id in cats else "—",
-        "ubicacion": e.ubicacion or "", "cantidad": e.cantidad, "unidad": e.unidad or "",
-        "minimo": e.minimo, "valor": e.valor, "estado": e.estado,
-    } for e in filas]
+    datos = []
+    for e in filas:
+        total, detalle = _stock(e)
+        datos.append({
+            "tipo": "Elemento", "id": e.id, "nombre": e.nombre,
+            "categoria": cats.get(e.categoria_id).nombre if e.categoria_id in cats else "—",
+            "ubicacion": detalle, "cantidad": total, "unidad": e.unidad or "",
+            "minimo": e.minimo, "valor": e.valor, "estado": e.estado,
+        })
     columnas = ["tipo", "id", "nombre", "categoria", "ubicacion", "cantidad", "unidad", "minimo", "valor", "estado"]
     return _responder(datos, columnas, formato, "reporte_inventario", "Inventario ACR")
 
@@ -136,14 +165,20 @@ def reporte_planta(
     db=Depends(get_db), _=Depends(require_role(_LECTORES)),
 ):
     if tipo == "quimicos":
-        # Químicos = elementos de inventario de categoría tipo 'insumo'.
+        # Químicos = elementos de inventario de categoría tipo 'insumo' y nombre "Químicos".
         stmt = select(models.ElementoInventario).join(
             models.CategoriaInventario,
             models.ElementoInventario.categoria_id == models.CategoriaInventario.id,
-        ).where(models.CategoriaInventario.tipo == models.CategoriaTipo.insumo)
+        ).where(
+            models.CategoriaInventario.tipo == models.CategoriaTipo.insumo,
+            models.CategoriaInventario.nombre.ilike("%quimic%"),
+        )
         filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
-        datos = [{"id": e.id, "nombre": e.nombre, "unidad": e.unidad or "",
-                  "cantidad": e.cantidad, "minimo": e.minimo} for e in filas]
+        datos = []
+        for e in filas:
+            total, _ = _stock_resumen(db, e)
+            datos.append({"id": e.id, "nombre": e.nombre, "unidad": e.unidad or "",
+                          "cantidad": total, "minimo": e.minimo})
         columnas = ["id", "nombre", "unidad", "cantidad", "minimo"]
         return _responder(datos, columnas, formato, "reporte_insumos_planta", "Insumos/Químicos Planta ACR")
 

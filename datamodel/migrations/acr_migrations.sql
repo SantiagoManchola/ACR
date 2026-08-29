@@ -15,7 +15,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ----------------------------- Autenticación / admin ------------------------
-CREATE TABLE roles (
+CREATE TABLE IF NOT EXISTS roles (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   nombre       VARCHAR(50)  NOT NULL UNIQUE,
   descripcion  TEXT,
@@ -23,7 +23,7 @@ CREATE TABLE roles (
   updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE permisos (
+CREATE TABLE IF NOT EXISTS permisos (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   codigo       VARCHAR(50)  NOT NULL UNIQUE,
   descripcion  TEXT,
@@ -31,7 +31,7 @@ CREATE TABLE permisos (
   updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   nombre          VARCHAR(150) NOT NULL,
   identificacion  VARCHAR(30),
@@ -50,7 +50,7 @@ CREATE TABLE usuarios (
   CONSTRAINT fk_usuarios_updated   FOREIGN KEY (updated_by) REFERENCES usuarios(id)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE rol_permisos (
+CREATE TABLE IF NOT EXISTS rol_permisos (
   rol_id       INT NOT NULL,
   permiso_id   INT NOT NULL,
   PRIMARY KEY (rol_id, permiso_id),
@@ -59,7 +59,7 @@ CREATE TABLE rol_permisos (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------- Inventario ------------------------------------
-CREATE TABLE categorias_inventario (
+CREATE TABLE IF NOT EXISTS categorias_inventario (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   nombre       VARCHAR(100) NOT NULL,
   tipo         ENUM('equipo','herramienta','laboratorio','accesorio','insumo') NOT NULL,
@@ -73,13 +73,10 @@ CREATE TABLE categorias_inventario (
   CONSTRAINT fk_cat_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE elementos_inventario (
+CREATE TABLE IF NOT EXISTS elementos_inventario (
   id             INT AUTO_INCREMENT PRIMARY KEY,
   nombre         VARCHAR(150) NOT NULL,
   categoria_id   INT NOT NULL,
-  tipo           VARCHAR(50),
-  ubicacion      VARCHAR(120),
-  cantidad       DECIMAL(12,2) NOT NULL DEFAULT 0,
   unidad         VARCHAR(20),
   proveedor      VARCHAR(150),
   valor          DECIMAL(14,2),
@@ -91,15 +88,70 @@ CREATE TABLE elementos_inventario (
   created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   KEY idx_elem_categoria (categoria_id),
-  KEY idx_elem_ubicacion (ubicacion),
   CONSTRAINT fk_elem_cat     FOREIGN KEY (categoria_id) REFERENCES categorias_inventario(id) ON DELETE RESTRICT,
   CONSTRAINT fk_elem_created FOREIGN KEY (created_by)   REFERENCES usuarios(id)              ON DELETE SET NULL,
   CONSTRAINT fk_elem_updated FOREIGN KEY (updated_by)   REFERENCES usuarios(id)              ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE movimientos_inventario (
+CREATE TABLE IF NOT EXISTS ubicaciones (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  nombre       VARCHAR(100) NOT NULL UNIQUE,
+  descripcion  TEXT,
+  created_by   INT,
+  updated_by   INT,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_ub_created (created_by),
+  CONSTRAINT fk_ub_created FOREIGN KEY (created_by) REFERENCES usuarios(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ub_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Existencias del MISMO producto en cada ubicación (un producto puede estar en N lugares)
+CREATE TABLE IF NOT EXISTS stock_ubicacion (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  elemento_id    INT NOT NULL,
+  ubicacion_id   INT NOT NULL,
+  cantidad       DECIMAL(12,2) NOT NULL DEFAULT 0,
+  created_by     INT,
+  updated_by     INT,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_stock_elem_ubi (elemento_id, ubicacion_id),
+  KEY idx_su_elem (elemento_id),
+  KEY idx_su_ubi (ubicacion_id),
+  CONSTRAINT fk_su_elem    FOREIGN KEY (elemento_id)  REFERENCES elementos_inventario(id) ON DELETE CASCADE,
+  CONSTRAINT fk_su_ubi     FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id)          ON DELETE RESTRICT,
+  CONSTRAINT fk_su_created FOREIGN KEY (created_by)   REFERENCES usuarios(id)             ON DELETE SET NULL,
+  CONSTRAINT fk_su_updated FOREIGN KEY (updated_by)   REFERENCES usuarios(id)             ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS traslados (
+  id                    INT AUTO_INCREMENT PRIMARY KEY,
+  elemento_id           INT NOT NULL,
+  ubicacion_origen_id   INT NOT NULL,
+  ubicacion_destino_id  INT NOT NULL,
+  cantidad              DECIMAL(12,2) NOT NULL,
+  responsable_id        INT,
+  observaciones         TEXT,
+  fecha                 DATE NOT NULL,
+  hora                  TIME,
+  created_by            INT,
+  updated_by            INT,
+  created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_trasl_fecha (fecha),
+  CONSTRAINT fk_trasl_elem  FOREIGN KEY (elemento_id)           REFERENCES elementos_inventario(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_trasl_orig  FOREIGN KEY (ubicacion_origen_id)  REFERENCES ubicaciones(id)          ON DELETE RESTRICT,
+  CONSTRAINT fk_trasl_dest  FOREIGN KEY (ubicacion_destino_id) REFERENCES ubicaciones(id)          ON DELETE RESTRICT,
+  CONSTRAINT fk_trasl_resp  FOREIGN KEY (responsable_id)     REFERENCES usuarios(id)           ON DELETE SET NULL,
+  CONSTRAINT fk_trasl_created FOREIGN KEY (created_by)       REFERENCES usuarios(id)           ON DELETE SET NULL,
+  CONSTRAINT fk_trasl_updated FOREIGN KEY (updated_by)       REFERENCES usuarios(id)           ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS movimientos_inventario (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   elemento_id   INT NOT NULL,
+  ubicacion_id  INT NOT NULL,
   tipo          ENUM('entrada','salida') NOT NULL,
   cantidad      DECIMAL(12,2) NOT NULL,
   responsable_id INT,
@@ -114,13 +166,14 @@ CREATE TABLE movimientos_inventario (
   KEY idx_mov_elemento     (elemento_id),
   KEY idx_mov_fecha_elem   (fecha, elemento_id),
   CONSTRAINT fk_mov_elem    FOREIGN KEY (elemento_id)  REFERENCES elementos_inventario(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_mov_ubi     FOREIGN KEY (ubicacion_id) REFERENCES ubicaciones(id)          ON DELETE RESTRICT,
   CONSTRAINT fk_mov_resp    FOREIGN KEY (responsable_id) REFERENCES usuarios(id)           ON DELETE SET NULL,
   CONSTRAINT fk_mov_created FOREIGN KEY (created_by)    REFERENCES usuarios(id)           ON DELETE SET NULL,
   CONSTRAINT fk_mov_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id)           ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------- Micromedidores -------------------------------
-CREATE TABLE suscriptores (
+CREATE TABLE IF NOT EXISTS suscriptores (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   nombre            VARCHAR(150) NOT NULL,
   identificacion    VARCHAR(30),
@@ -140,7 +193,7 @@ CREATE TABLE suscriptores (
   CONSTRAINT fk_sub_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE micromedidores (
+CREATE TABLE IF NOT EXISTS micromedidores (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   serial            VARCHAR(50) NOT NULL UNIQUE,
   tipo              VARCHAR(50),
@@ -158,7 +211,7 @@ CREATE TABLE micromedidores (
   CONSTRAINT fk_mm_updated    FOREIGN KEY (updated_by)   REFERENCES usuarios(id)    ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE lecturas (
+CREATE TABLE IF NOT EXISTS lecturas (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   micromedidor_id INT NOT NULL,
   suscriptor_id   INT NOT NULL,
@@ -185,7 +238,7 @@ CREATE TABLE lecturas (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------- Planta de tratamiento ------------------------
-CREATE TABLE dosificaciones (
+CREATE TABLE IF NOT EXISTS dosificaciones (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   elemento_id   INT NOT NULL,
   cantidad      DECIMAL(12,2) NOT NULL,
@@ -206,7 +259,7 @@ CREATE TABLE dosificaciones (
   CONSTRAINT fk_dos_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id)            ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE parametros_planta (
+CREATE TABLE IF NOT EXISTS parametros_planta (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   nombre       VARCHAR(80) NOT NULL,
   tipo_agua    ENUM('cruda','tratada') NOT NULL,
@@ -222,7 +275,7 @@ CREATE TABLE parametros_planta (
   CONSTRAINT fk_pp_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE mediciones (
+CREATE TABLE IF NOT EXISTS mediciones (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   parametro_id      INT NOT NULL,
   valor             DECIMAL(12,4) NOT NULL,
@@ -244,7 +297,7 @@ CREATE TABLE mediciones (
   CONSTRAINT fk_med_updated  FOREIGN KEY (updated_by)    REFERENCES usuarios(id)           ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE actividades_planta (
+CREATE TABLE IF NOT EXISTS actividades_planta (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   tipo          VARCHAR(80) NOT NULL,
   fecha         DATE NOT NULL,
@@ -263,7 +316,7 @@ CREATE TABLE actividades_planta (
   CONSTRAINT fk_act_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE horas_servicio (
+CREATE TABLE IF NOT EXISTS horas_servicio (
   id            INT AUTO_INCREMENT PRIMARY KEY,
   fecha         DATE NOT NULL,
   horas         DECIMAL(6,2) NOT NULL,

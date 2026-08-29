@@ -100,22 +100,20 @@ class CategoriaOut(_ORM):
 class ElementoCreate(BaseModel):
     nombre: str = Field(min_length=1, max_length=150)
     categoria_id: int
-    tipo: Optional[str] = None
-    ubicacion: Optional[str] = None
-    cantidad: Decimal = Field(default=0, ge=0)
     unidad: Optional[str] = None
     proveedor: Optional[str] = None
     valor: Optional[Decimal] = None
     minimo: Optional[Decimal] = None
     observaciones: Optional[str] = None
+    # Stock inicial opcional: sirve para crear el producto ya con existencias
+    # en una ubicación concreta (en lugar de registrar una entrada aparte).
+    ubicacion_id: Optional[int] = None
+    cantidad_inicial: Optional[Decimal] = Field(default=None, ge=0)
 
 
 class ElementoUpdate(BaseModel):
     nombre: Optional[str] = None
     categoria_id: Optional[int] = None
-    tipo: Optional[str] = None
-    ubicacion: Optional[str] = None
-    cantidad: Optional[Decimal] = None
     unidad: Optional[str] = None
     proveedor: Optional[str] = None
     valor: Optional[Decimal] = None
@@ -124,12 +122,18 @@ class ElementoUpdate(BaseModel):
     observaciones: Optional[str] = None
 
 
+class StockUbicacionOut(_ORM):
+    id: int
+    elemento_id: int
+    ubicacion_id: int
+    ubicacion: Optional[str] = None
+    cantidad: Decimal
+
+
 class ElementoOut(_ORM):
     id: int
     nombre: str
     categoria_id: int
-    tipo: Optional[str] = None
-    ubicacion: Optional[str] = None
     cantidad: Decimal
     unidad: Optional[str] = None
     proveedor: Optional[str] = None
@@ -137,9 +141,52 @@ class ElementoOut(_ORM):
     minimo: Optional[Decimal] = None
     estado: EstadoRegistro
     observaciones: Optional[str] = None
+    stock: List[StockUbicacionOut] = []
+
+
+class UbicacionCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+    descripcion: Optional[str] = None
+
+
+class UbicacionUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    descripcion: Optional[str] = None
+
+
+class UbicacionOut(_ORM):
+    id: int
+    nombre: str
+    descripcion: Optional[str] = None
+
+
+class TrasladoCreate(BaseModel):
+    elemento_id: int
+    ubicacion_origen_id: int
+    ubicacion_destino_id: int
+    cantidad: Decimal = Field(gt=0)
+    observaciones: Optional[str] = None
+    fecha: Optional[date] = None
+    hora: Optional[time] = None
+    responsable_id: Optional[int] = None
+
+
+class TrasladoOut(_ORM):
+    id: int
+    elemento_id: int
+    ubicacion_origen_id: int
+    ubicacion_destino_id: int
+    ubicacion_origen: Optional[str] = None
+    ubicacion_destino: Optional[str] = None
+    cantidad: Decimal
+    responsable_id: Optional[int] = None
+    observaciones: Optional[str] = None
+    fecha: date
+    hora: Optional[time] = None
 
 
 class MovimientoCreate(BaseModel):
+    ubicacion_id: int
     cantidad: Decimal = Field(gt=0)
     motivo: Optional[str] = None
     observaciones: Optional[str] = None
@@ -150,6 +197,8 @@ class MovimientoCreate(BaseModel):
 class MovimientoOut(_ORM):
     id: int
     elemento_id: int
+    ubicacion_id: int
+    ubicacion: Optional[str] = None
     tipo: TipoMovimiento
     cantidad: Decimal
     responsable_id: Optional[int] = None
@@ -160,12 +209,13 @@ class MovimientoOut(_ORM):
 
 
 class AlertaOut(BaseModel):
-    """Elemento de inventario o químico por debajo de su mínimo configurado."""
+    """Existencias por ubicación por debajo de su mínimo configurado."""
 
     tipo: str
     id: int
     nombre: str
     categoria: str
+    ubicacion: Optional[str] = None
     cantidad: Decimal
     minimo: Optional[Decimal] = None
     unidad: Optional[str] = None

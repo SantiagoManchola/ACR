@@ -18,17 +18,14 @@ const tab = ref('elementos')
 const showForm = ref(false)
 const showMov = ref(false)
 const showCat = ref(false)
-const showQuimico = ref(false)
-const editingQuimico = ref(null)
-const showDosis = ref(false)
+const showUbi = ref(false)
 const editing = ref(null)
 const movTipo = ref('entrada')
 const movElem = ref(null)
 const formError = ref('')
 const movError = ref('')
 const catError = ref('')
-const quimicoError = ref('')
-const dosisError = ref('')
+const ubiError = ref('')
 const saving = ref(false)
 
 /* Reportes */
@@ -40,6 +37,7 @@ async function generarReporte(tipo) {
   if (tipo === 'elementos') {
     if (filtros.value.nombre) params.nombre = filtros.value.nombre
     if (filtros.value.categoria_id) params.categoria_id = filtros.value.categoria_id
+    if (filtros.value.ubicacion_id) params.ubicacion_id = filtros.value.ubicacion_id
   }
   try {
     await descargarReporte('/reportes/inventario', params, `reporte_${tipo}`)
@@ -49,17 +47,27 @@ async function generarReporte(tipo) {
 }
 
 /* Filtros de elementos */
-const filtros = ref({ nombre: '', categoria_id: '' })
+const filtros = ref({ nombre: '', categoria_id: '', ubicacion_id: '' })
 function aplicarFiltros() {
   const f = {}
   if (filtros.value.nombre) f.nombre = filtros.value.nombre
   if (filtros.value.categoria_id) f.categoria_id = filtros.value.categoria_id
+  if (filtros.value.ubicacion_id) f.ubicacion_id = filtros.value.ubicacion_id
   return f
 }
 function filtrar() { inv.loadElementos(aplicarFiltros()) }
-function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '' }; inv.loadElementos() }
+function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; inv.loadElementos() }
 
 const catOptions = computed(() => inv.categorias.map((c) => ({ value: c.id, label: `${c.nombre} (${c.tipo})` })))
+const ubiOptions = computed(() => inv.ubicaciones.map((u) => ({ value: u.id, label: u.nombre })))
+const ubicMap = computed(() => Object.fromEntries(inv.ubicaciones.map((u) => [u.id, u.nombre])))
+const catMap = computed(() => Object.fromEntries(inv.categorias.map((c) => [c.id, c.nombre])))
+const elementoOptions = computed(() => inv.elementos.map((e) => {
+  const stock = e.stock && e.stock.length
+    ? e.stock.map((s) => `${ubicMap.value[s.ubicacion_id] || '—'}: ${fmtNum(s.cantidad)}`).join(', ')
+    : 'sin stock'
+  return { value: e.id, label: `${e.nombre} — ${stock}` }
+}))
 
 /* Categorías */
 const emptyCat = () => ({ nombre: '', tipo: 'equipo', descripcion: '' })
@@ -77,6 +85,42 @@ async function saveCat() {
   try { await inv.createCategoria({ ...catForm.value }); showCat.value = false; await inv.loadCategorias() }
   catch (e) { catError.value = apiError(e) } finally { saving.value = false }
 }
+
+/* Ubicaciones */
+const emptyUbi = () => ({ nombre: '', descripcion: '' })
+const ubiForm = ref(emptyUbi())
+const ubiCols = [
+  { key: 'nombre', label: 'Nombre' },
+  { key: 'descripcion', label: 'Descripción' },
+]
+const editingUbi = ref(null)
+function openNewUbi() { editingUbi.value = null; ubiForm.value = emptyUbi(); ubiError.value = ''; showUbi.value = true }
+function openEditUbi(r) { editingUbi.value = r; ubiForm.value = { ...r }; ubiError.value = ''; showUbi.value = true }
+async function saveUbi() {
+  ubiError.value = ''
+  if (!ubiForm.value.nombre) { ubiError.value = 'El nombre es obligatorio.'; return }
+  saving.value = true
+  try {
+    if (editingUbi.value) await inv.updateUbicacion(editingUbi.value.id, { ...ubiForm.value })
+    else await inv.createUbicacion({ ...ubiForm.value })
+    showUbi.value = false; await inv.loadUbicaciones()
+  } catch (e) { ubiError.value = apiError(e) } finally { saving.value = false }
+}
+
+/* Resumen por ubicación (cuántos productos y cuántas unidades hay en cada lugar) */
+const resumenUbi = computed(() => {
+  const map = {}
+  for (const u of inv.ubicaciones) map[u.id] = { nombre: u.nombre, productos: 0, unidades: 0 }
+  for (const e of inv.elementos) {
+    for (const s of (e.stock || [])) {
+      if (map[s.ubicacion_id]) {
+        map[s.ubicacion_id].productos += 1
+        map[s.ubicacion_id].unidades += Number(s.cantidad) || 0
+      }
+    }
+  }
+  return Object.values(map)
+})
 
 /* Confirmación de acciones destructivas */
 const confirmShow = ref(false)
@@ -100,87 +144,22 @@ async function reactivarElem(r) {
   await inv.loadElementos()
 }
 
-function refreshInv() { return Promise.all([inv.loadCategorias(), inv.loadElementos(), inv.loadMovimientos(), inv.loadAlertas(), inv.loadQuimicos(), inv.loadDosificacionesInv()]) }
-
-/* Químicos / Dosificaciones (los químicos son insumos dentro del inventario) */
-const insumoCatOptions = computed(() => inv.categorias.filter((c) => c.tipo === 'insumo').map((c) => ({ value: c.id, label: c.nombre })))
-const emptyQuimico = () => ({ nombre: '', categoria_id: null, unidad: '', cantidad: 0, minimo: '' })
-const quimicoForm = ref(emptyQuimico())
-const emptyDosis = () => ({ elemento_id: null, cantidad: '', observaciones: '' })
-const dosisForm = ref(emptyDosis())
-
-const quimicoCols = [
-  { key: 'nombre', label: 'Nombre' },
-  { key: 'categoria', label: 'Categoría' },
-  { key: 'unidad', label: 'Unidad' },
-  { key: 'cantidad', label: 'Disponible', align: 'right', num: true },
-  { key: 'minimo', label: 'Mínimo', align: 'right', num: true },
-]
-const dosisCols = [
-  { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'insumo', label: 'Insumo' },
-  { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
-  { key: 'unidad', label: 'Unidad' },
-  { key: 'observaciones', label: 'Observaciones' },
-]
-const quimicoMap = computed(() => Object.fromEntries(inv.quimicos.map((q) => [q.id, q.nombre])))
-const quimicoOptionsDisp = computed(() => inv.quimicos.map((q) => ({
-  value: q.id, label: `${q.nombre} (${fmtNum(q.cantidad)} ${q.unidad || ''})`.trim(),
-})))
-const quimicosBajos = computed(() => inv.quimicos.filter((q) => q.minimo != null && Number(q.cantidad) <= Number(q.minimo)).length)
-const dosisUnidadInv = computed(() => { const q = inv.quimicos.find((x) => x.id === dosisForm.value.elemento_id); return q?.unidad || '' })
-
-function openNewQuimico() { editingQuimico.value = null; quimicoForm.value = emptyQuimico(); quimicoError.value = ''; showQuimico.value = true }
-function openEditQuimico(r) { editingQuimico.value = r; quimicoForm.value = { ...r, categoria_id: r.categoria_id, minimo: r.minimo ?? '' }; quimicoError.value = ''; showQuimico.value = true }
-async function saveQuimico() {
-  quimicoError.value = ''
-  if (!quimicoForm.value.nombre || !quimicoForm.value.categoria_id) { quimicoError.value = 'Nombre y categoría (insumo) son obligatorios.'; return }
-  saving.value = true
-  try {
-    const payload = {
-      nombre: quimicoForm.value.nombre,
-      categoria_id: Number(quimicoForm.value.categoria_id),
-      unidad: quimicoForm.value.unidad || null,
-      cantidad: Number(quimicoForm.value.cantidad) || 0,
-      minimo: quimicoForm.value.minimo === '' ? null : Number(quimicoForm.value.minimo),
-    }
-    if (editingQuimico.value) await inv.updateQuimico(editingQuimico.value.id, payload)
-    else await inv.createQuimico(payload)
-    showQuimico.value = false
-    await inv.loadQuimicos()
-  } catch (e) { quimicoError.value = apiError(e) } finally { saving.value = false }
+function refreshInv() {
+  return Promise.all([inv.loadCategorias(), inv.loadUbicaciones(), inv.loadElementos(), inv.loadMovimientos(), inv.loadAlertas(), inv.loadTraslados()])
 }
 
-function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
-async function saveDosis() {
-  dosisError.value = ''
-  if (!dosisForm.value.elemento_id || !dosisForm.value.cantidad || Number(dosisForm.value.cantidad) <= 0) { dosisError.value = 'Seleccione un insumo y una cantidad mayor a 0.'; return }
-  saving.value = true
-  try {
-    await inv.createDosificacionInv({
-      elemento_id: Number(dosisForm.value.elemento_id),
-      cantidad: Number(dosisForm.value.cantidad),
-      observaciones: dosisForm.value.observaciones || null,
-    })
-    showDosis.value = false
-    await inv.loadDosificacionesInv()
-    await inv.loadQuimicos()
-  } catch (e) { dosisError.value = apiError(e) } finally { saving.value = false }
-}
-
-const catMap = computed(() => Object.fromEntries(inv.categorias.map((c) => [c.id, c.nombre])))
-
-const emptyForm = () => ({ nombre: '', categoria_id: null, tipo: '', ubicacion: '', cantidad: 0, unidad: '', proveedor: '', valor: '', minimo: '', observaciones: '' })
+const emptyForm = () => ({
+  nombre: '', categoria_id: null, unidad: '', proveedor: '', valor: '', minimo: '',
+  observaciones: '', ubicacion_inicial: null, cantidad_inicial: '',
+})
 const form = ref(emptyForm())
-const movForm = ref({ cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) })
+const movForm = ref({ ubicacion_id: null, cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) })
 
 const elementosCols = [
   { key: 'nombre', label: 'Elemento' },
   { key: 'categoria', label: 'Categoría' },
-  { key: 'tipo', label: 'Tipo' },
-  { key: 'ubicacion', label: 'Ubicación' },
-  { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
+  { key: 'ubicaciones', label: 'Ubicaciones' },
+  { key: 'cantidad', label: 'Cant. total', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'minimo', label: 'Mín.', align: 'right' },
 ]
@@ -188,25 +167,39 @@ const movCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
   { key: 'elemento', label: 'Elemento' },
+  { key: 'ubicacion', label: 'Ubicación' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
   { key: 'motivo', label: 'Motivo' },
 ]
 const alertCols = [
   { key: 'tipo', label: 'Tipo' },
-  { key: 'nombre', label: 'Elemento / Producto' },
+  { key: 'nombre', label: 'Elemento' },
   { key: 'categoria', label: 'Categoría' },
+  { key: 'ubicacion', label: 'Ubicación' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
   { key: 'minimo', label: 'Mínimo', align: 'right', num: true },
 ]
+const ubiColsFinal = ubiCols
 
 function openNew() { editing.value = null; form.value = emptyForm(); formError.value = ''; showForm.value = true }
 function openEdit(row) {
   editing.value = row
-  form.value = { ...row, categoria_id: row.categoria_id, valor: row.valor ?? '', minimo: row.minimo ?? '', cantidad: row.cantidad ?? 0 }
+  form.value = {
+    nombre: row.nombre, categoria_id: row.categoria_id, unidad: row.unidad || '',
+    proveedor: row.proveedor || '', valor: row.valor ?? '', minimo: row.minimo ?? '',
+    observaciones: row.observaciones || '', ubicacion_inicial: null, cantidad_inicial: '',
+  }
   formError.value = ''; showForm.value = true
 }
-function openMov(row, tipo) { movElem.value = row; movTipo.value = tipo; movForm.value = { cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) }; movError.value = ''; showMov.value = true }
+function openMov(row, tipo) {
+  movElem.value = row
+  movTipo.value = tipo
+  const primera = (row.stock && row.stock[0] && row.stock[0].ubicacion_id) || null
+  movForm.value = { ubicacion_id: primera, cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) }
+  movError.value = ''
+  showMov.value = true
+}
 
 async function saveElemento() {
   formError.value = ''
@@ -214,10 +207,17 @@ async function saveElemento() {
   saving.value = true
   try {
     const payload = {
-      ...form.value,
-      cantidad: Number(form.value.cantidad) || 0,
+      nombre: form.value.nombre,
+      categoria_id: Number(form.value.categoria_id),
+      unidad: form.value.unidad || null,
+      proveedor: form.value.proveedor || null,
       valor: form.value.valor === '' ? null : Number(form.value.valor),
       minimo: form.value.minimo === '' ? null : Number(form.value.minimo),
+      observaciones: form.value.observaciones || null,
+    }
+    if (!editing.value) {
+      payload.ubicacion_id = form.value.ubicacion_inicial ? Number(form.value.ubicacion_inicial) : null
+      payload.cantidad_inicial = form.value.cantidad_inicial === '' ? null : Number(form.value.cantidad_inicial)
     }
     if (editing.value) await inv.updateElemento(editing.value.id, payload)
     else await inv.createElemento(payload)
@@ -228,10 +228,12 @@ async function saveElemento() {
 
 async function saveMov() {
   movError.value = ''
+  if (!movForm.value.ubicacion_id) { movError.value = 'Seleccione la ubicación.'; return }
   if (!movForm.value.cantidad || Number(movForm.value.cantidad) <= 0) { movError.value = 'Ingrese una cantidad mayor a 0.'; return }
   saving.value = true
   try {
     await inv.registrarMovimiento(movElem.value.id, movTipo.value, {
+      ubicacion_id: Number(movForm.value.ubicacion_id),
       cantidad: Number(movForm.value.cantidad),
       motivo: movForm.value.motivo,
       observaciones: movForm.value.observaciones,
@@ -242,31 +244,80 @@ async function saveMov() {
   } catch (e) { movError.value = apiError(e) } finally { saving.value = false }
 }
 
+/* Traslados: mover el MISMO producto entre dos ubicaciones */
+const showTras = ref(false)
+const trasForm = ref({ elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) })
+const trasError = ref('')
+function openNewTras() {
+  trasForm.value = { elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) }
+  trasError.value = ''; showTras.value = true
+}
+const trasUbicOrigenOptions = computed(() => {
+  const e = inv.elementos.find((x) => x.id === trasForm.value.elemento_id)
+  if (!e || !e.stock) return []
+  return e.stock.map((s) => ({ value: s.ubicacion_id, label: `${ubicMap.value[s.ubicacion_id] || '—'} (${fmtNum(s.cantidad)})` }))
+})
+const trasUbicDestinoOptions = computed(() => ubiOptions.value.filter((u) => u.value !== trasForm.value.ubicacion_origen_id))
+async function saveTras() {
+  trasError.value = ''
+  if (!trasForm.value.elemento_id || !trasForm.value.ubicacion_origen_id || !trasForm.value.ubicacion_destino_id || !trasForm.value.cantidad || Number(trasForm.value.cantidad) <= 0) {
+    trasError.value = 'Seleccione producto, origen, destino y una cantidad mayor a 0.'
+    return
+  }
+  saving.value = true
+  try {
+    await inv.createTraslado({
+      elemento_id: Number(trasForm.value.elemento_id),
+      ubicacion_origen_id: Number(trasForm.value.ubicacion_origen_id),
+      ubicacion_destino_id: Number(trasForm.value.ubicacion_destino_id),
+      cantidad: Number(trasForm.value.cantidad),
+      observaciones: trasForm.value.observaciones || null,
+      fecha: trasForm.value.fecha,
+    })
+    showTras.value = false
+    await Promise.all([inv.loadElementos(), inv.loadTraslados()])
+  } catch (e) { trasError.value = apiError(e) } finally { saving.value = false }
+}
+
+const trasladoCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'hora', label: 'Hora' },
+  { key: 'elemento', label: 'Producto' },
+  { key: 'origen', label: 'Origen' },
+  { key: 'destino', label: 'Destino' },
+  { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
+  { key: 'responsable', label: 'Responsable' },
+]
+const userMap = computed(() => Object.fromEntries((auth.usuarios || []).map((u) => [u.id, u.nombre])))
+const elemMap = computed(() => Object.fromEntries(inv.elementos.map((e) => [e.id, e])))
+
 function badgeTone(tipo) { return tipo === 'entrada' ? 'badge-ok' : 'badge-warn' }
 
 onMounted(async () => {
   await inv.loadCategorias()
+  await inv.loadUbicaciones()
   await inv.loadElementos()
   await inv.loadMovimientos()
   await inv.loadAlertas()
-  await inv.loadQuimicos()
-  await inv.loadDosificacionesInv()
+  await inv.loadTraslados()
 })
 
-watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.loadDosificacionesInv() } })
+watch(() => tab.value, (t) => {
+  if (t === 'ubicaciones') inv.loadUbicaciones()
+  if (t === 'traslados') inv.loadTraslados()
+})
 </script>
 
 <template>
   <div>
     <h1>Inventario</h1>
-    <p class="muted">Elementos, movimientos y alertas de existencias (RF-06 a RF-20).</p>
+    <p class="muted">Productos, ubicaciones, traslados, movimientos y alertas de existencias (RF-06 a RF-20).</p>
 
     <div class="tabs">
       <button :class="{ active: tab === 'elementos' }" @click="tab = 'elementos'"><AppIcon name="package" />Elementos</button>
       <button :class="{ active: tab === 'categorias' }" @click="tab = 'categorias'"><AppIcon name="tag" />Categorías</button>
-      <button :class="{ active: tab === 'quimicos' }" @click="tab = 'quimicos'"><AppIcon name="flask" />Químicos
-        <span v-if="quimicosBajos" class="badge badge-bad">{{ quimicosBajos }}</span>
-      </button>
+      <button :class="{ active: tab === 'ubicaciones' }" @click="tab = 'ubicaciones'"><AppIcon name="mapPin" />Ubicaciones</button>
+      <button :class="{ active: tab === 'traslados' }" @click="tab = 'traslados'"><AppIcon name="swap" />Traslados</button>
       <button :class="{ active: tab === 'movimientos' }" @click="tab = 'movimientos'"><AppIcon name="refresh" />Movimientos</button>
       <button :class="{ active: tab === 'alertas' }" @click="tab = 'alertas'">
         <AppIcon name="alert" />Alertas
@@ -288,6 +339,13 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
             <option v-for="c in catOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
           </select>
         </div>
+        <div class="field">
+          <label>Ubicación</label>
+          <select class="select" v-model="filtros.ubicacion_id">
+            <option value="">Todas</option>
+            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
+          </select>
+        </div>
         <div class="field filter-actions">
           <button class="btn btn-primary" @click="filtrar"><AppIcon name="search" />Filtrar</button>
           <button class="btn btn-ghost" @click="limpiarFiltros"><AppIcon name="refresh" />Limpiar</button>
@@ -300,6 +358,12 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       <DataTable :columns="elementosCols" :rows="inv.elementos" :loading="inv.loading" empty-text="No hay elementos registrados.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'categoria'">{{ catMap[row.categoria_id] || '—' }}</span>
+          <span v-else-if="col.key === 'ubicaciones'">
+            <template v-if="row.stock && row.stock.length">
+              <span v-for="s in row.stock" :key="s.id" class="chip">{{ ubicMap[s.ubicacion_id] || '—' }}: {{ fmtNum(s.cantidad) }}</span>
+            </template>
+            <span v-else class="muted">sin stock</span>
+          </span>
           <span v-else-if="col.key === 'minimo'">
             <span class="badge" :class="(row.minimo != null && Number(row.cantidad) <= Number(row.minimo)) ? 'badge-bad' : 'badge-muted'">{{ fmtNum(row.minimo) }}</span>
           </span>
@@ -309,7 +373,7 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
         <template #row-actions="{ row }">
           <button class="btn btn-ghost btn-sm" @click="openEdit(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
           <button class="btn btn-ghost btn-sm" @click="openMov(row, 'entrada')" title="Entrada"><AppIcon name="plus" :size="16" /></button>
-          <button class="btn btn-ghost btn-sm" @click="openMov(row, 'salida')" title="Salida"><AppIcon name="download" :size="16" /></button>
+          <button class="btn btn-link btn-sm" @click="openMov(row, 'salida')" title="Registrar salida"><AppIcon name="minus" :size="16" /> Salida</button>
           <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="askDelElem(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
           <button v-else class="btn btn-ghost btn-sm" @click="reactivarElem(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
@@ -339,44 +403,37 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       </DataTable>
     </div>
 
-    <!-- QUÍMICOS -->
-    <div v-else-if="tab === 'quimicos'">
+    <!-- UBICACIONES -->
+    <div v-else-if="tab === 'ubicaciones'">
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewQuimico"><AppIcon name="plus" />Nuevo químico</button>
-        <button class="btn btn-primary" @click="openNewDosis"><AppIcon name="plus" />Registrar dosificación</button>
+        <button class="btn btn-primary" @click="openNewUbi"><AppIcon name="plus" />Nueva ubicación</button>
         <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
       </div>
-
-      <h2 class="section-title">Químicos</h2>
-      <DataTable :columns="quimicoCols" :rows="inv.quimicos" :loading="inv.loading" empty-text="Sin químicos registrados.">
-        <template #cell="{ row, col }">
-          <span v-if="col.key === 'categoria'">{{ catMap[row.categoria_id] || '—' }}</span>
-          <span v-else-if="col.key === 'cantidad'">{{ fmtNum(row.cantidad) }} {{ row.unidad || '' }}</span>
-          <span v-else-if="col.key === 'minimo'">
-            <span v-if="row.minimo != null && Number(row.cantidad) <= Number(row.minimo)" class="badge badge-bad">Stock bajo</span>
-            <span v-else-if="row.minimo != null" class="badge badge-ok">OK</span>
-            <span v-else>—</span>
-          </span>
-          <span v-else>{{ row[col.key] ?? '—' }}</span>
-        </template>
+      <div class="resumen-ubi" v-if="resumenUbi.length">
+        <div class="resumen-card" v-for="r in resumenUbi" :key="r.nombre">
+          <span class="resumen-nombre"><AppIcon name="mapPin" :size="14" />{{ r.nombre }}</span>
+          <span class="resumen-dato">{{ r.productos }} {{ r.productos === 1 ? 'producto' : 'productos' }}</span>
+          <span class="resumen-dato resumen-unidades">{{ fmtNum(r.unidades) }} uds.</span>
+        </div>
+      </div>
+      <DataTable :columns="ubiColsFinal" :rows="inv.ubicaciones" :loading="inv.loading" empty-text="Sin ubicaciones registradas.">
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditQuimico(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button class="btn btn-ghost btn-sm" @click="openEditUbi(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
         </template>
       </DataTable>
-      <div class="report-bar">
-        <select class="select" v-model="formatoReporte">
-          <option value="csv">CSV</option>
-          <option value="xlsx">XLSX</option>
-          <option value="pdf">PDF</option>
-        </select>
-        <button class="btn btn-ghost" @click="generarReporte('quimicos')"><AppIcon name="download" />Generar reporte</button>
-      </div>
-      <BaseAlert v-if="repError" type="bad" class="mt-1">{{ repError }}</BaseAlert>
+    </div>
 
-      <h2 class="section-title">Dosificaciones</h2>
-      <DataTable :columns="dosisCols" :rows="inv.dosificacionesInv" :loading="inv.loading" empty-text="Sin dosificaciones registradas.">
+    <!-- TRASLADOS -->
+    <div v-else-if="tab === 'traslados'">
+      <div class="toolbar">
+        <button class="btn btn-primary" @click="openNewTras"><AppIcon name="swap" />Nuevo traslado</button>
+      </div>
+      <DataTable :columns="trasladoCols" :rows="inv.traslados" :loading="inv.loading" empty-text="Sin traslados registrados.">
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'insumo'">{{ quimicoMap[row.elemento_id] || row.elemento_id }}</span>
+          <span v-if="col.key === 'elemento'">{{ elemMap[row.elemento_id]?.nombre || row.elemento_id }}</span>
+          <span v-else-if="col.key === 'origen'">{{ row.ubicacion_origen || '—' }}</span>
+          <span v-else-if="col.key === 'destino'">{{ row.ubicacion_destino || '—' }}</span>
+          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -388,6 +445,7 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       <DataTable :columns="movCols" :rows="inv.movimientos" :loading="inv.loading" empty-text="Sin movimientos registrados.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'elemento'">{{ inv.elementos.find((e) => e.id === row.elemento_id)?.nombre || row.elemento_id }}</span>
+          <span v-else-if="col.key === 'ubicacion'">{{ row.ubicacion || '—' }}</span>
           <span v-else-if="col.key === 'tipo'"><span class="badge" :class="badgeTone(row.tipo)">{{ row.tipo }}</span></span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -397,10 +455,12 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
 
     <!-- ALERTAS -->
     <div v-else>
-      <BaseAlert v-if="!inv.alertas.length" type="ok" class="mb-1">No hay elementos ni químicos bajo el mínimo configurado.</BaseAlert>
+      <BaseAlert v-if="!inv.alertas.length" type="ok" class="mb-1">No hay elementos bajo el mínimo configurado.</BaseAlert>
       <DataTable v-else :columns="alertCols" :rows="inv.alertas" :loading="inv.loading" empty-text="Sin alertas.">
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'tipo'"><span class="badge" :class="row.tipo === 'Químico' ? 'badge-info' : 'badge-muted'">{{ row.tipo }}</span></span>
+          <span v-if="col.key === 'tipo'"><span class="badge badge-muted">{{ row.tipo }}</span></span>
+          <span v-else-if="col.key === 'categoria'">{{ row.categoria }}</span>
+          <span v-else-if="col.key === 'ubicacion'">{{ row.ubicacion || '—' }}</span>
           <span v-else-if="col.key === 'minimo'"><span class="badge badge-bad">{{ fmtNum(row.minimo) }}</span></span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -421,24 +481,8 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
           <SearchableSelect v-model="form.categoria_id" :options="catOptions" placeholder="Seleccione…" />
         </div>
         <div class="field">
-          <label>Tipo</label>
-          <input class="input" v-model="form.tipo" placeholder="Ej. accesorio" />
-        </div>
-        <div class="field">
-          <label>Ubicación</label>
-          <input class="input" v-model="form.ubicacion" />
-        </div>
-        <div class="field">
-          <label>Cantidad inicial</label>
-          <input class="input" type="number" step="0.01" placeholder="0" v-model="form.cantidad" />
-        </div>
-        <div class="field">
           <label>Unidad</label>
-          <input class="input" v-model="form.unidad" placeholder="Ej. unidad, caja" />
-        </div>
-        <div class="field">
-          <label>Mínimo (alerta)</label>
-          <input class="input" type="number" step="0.01" placeholder="0" v-model="form.minimo" />
+          <input class="input" v-model="form.unidad" placeholder="Ej. unidad, caja, kg" />
         </div>
         <div class="field">
           <label>Proveedor</label>
@@ -446,12 +490,35 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
         </div>
         <div class="field">
           <label>Valor unitario</label>
-          <input class="input" type="number" step="0.01" placeholder="0" v-model="form.valor" />
+          <div style="display:flex; align-items:center; gap:.4rem">
+            <span style="font-weight:600; color:var(--acr-texto)">$</span>
+            <input class="input" type="number" step="0.01" placeholder="0" v-model="form.valor" style="flex:1" />
+          </div>
         </div>
+        <div class="field">
+          <label>Mínimo (alerta)</label>
+          <input class="input" type="number" step="0.01" placeholder="0" v-model="form.minimo" />
+        </div>
+        <template v-if="!editing">
+          <div class="field">
+            <label>Ubicación inicial</label>
+            <SearchableSelect v-model="form.ubicacion_inicial" :options="ubiOptions" placeholder="Opcional" />
+          </div>
+          <div class="field">
+            <label>Cantidad inicial</label>
+            <input class="input" type="number" step="0.01" placeholder="0" v-model="form.cantidad_inicial" />
+          </div>
+        </template>
       </div>
       <div class="field">
         <label>Observaciones</label>
         <textarea class="textarea" v-model="form.observaciones"></textarea>
+      </div>
+      <div v-if="editing && editing.stock && editing.stock.length" class="field">
+        <label>Existencias actuales por ubicación</label>
+        <div class="stock-readonly">
+          <span v-for="s in editing.stock" :key="s.id" class="chip">{{ ubicMap[s.ubicacion_id] || '—' }}: {{ fmtNum(s.cantidad) }}</span>
+        </div>
       </div>
       <template #footer>
         <button class="btn btn-ghost" @click="showForm = false">Cancelar</button>
@@ -463,8 +530,12 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
     <BaseModal v-model="showMov" :title="(movTipo === 'entrada' ? 'Registrar entrada' : 'Registrar salida') + ' · ' + (movElem?.nombre || '')">
       <BaseAlert v-if="movError" type="bad" class="mb-1">{{ movError }}</BaseAlert>
       <div class="field">
-          <label>Cantidad *</label>
-          <input class="input" type="number" step="0.01" placeholder="0" v-model="movForm.cantidad" />
+        <label>Ubicación *</label>
+        <SearchableSelect v-model="movForm.ubicacion_id" :options="ubiOptions" placeholder="Seleccione ubicación…" />
+      </div>
+      <div class="field">
+        <label>Cantidad *</label>
+        <input class="input" type="number" step="0.01" placeholder="0" v-model="movForm.cantidad" />
       </div>
       <div class="field">
         <label>Motivo</label>
@@ -480,7 +551,7 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       </div>
       <template #footer>
         <button class="btn btn-ghost" @click="showMov = false">Cancelar</button>
-        <button class="btn" :class="movTipo === 'entrada' ? 'btn-primary' : 'btn-danger'" :disabled="saving" @click="saveMov">{{ saving ? 'Guardando…' : 'Registrar' }}</button>
+        <button class="btn" :class="movTipo === 'entrada' ? 'btn-primary' : 'btn-ghost'" :disabled="saving" @click="saveMov">{{ saving ? 'Guardando…' : 'Registrar' }}</button>
       </template>
     </BaseModal>
 
@@ -506,41 +577,58 @@ watch(() => tab.value, (t) => { if (t === 'quimicos') { inv.loadQuimicos(); inv.
       </template>
     </BaseModal>
 
+    <!-- UBICACIÓN -->
+    <BaseModal v-model="showUbi" :title="editingUbi ? 'Editar ubicación' : 'Nueva ubicación'">
+      <BaseAlert v-if="ubiError" type="bad" class="mb-1">{{ ubiError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="ubiForm.nombre" placeholder="Ej. Oficina, Planta de tratamiento" /></div>
+        <div class="field" style="grid-column:span 2"><label>Descripción</label><textarea class="textarea" v-model="ubiForm.descripcion" /></div>
+      </div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showUbi = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveUbi">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <!-- TRASLADO -->
+    <BaseModal v-model="showTras" title="Registrar traslado">
+      <BaseAlert v-if="trasError" type="bad" class="mb-1">{{ trasError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2">
+          <label>Producto *</label>
+          <SearchableSelect v-model="trasForm.elemento_id" :options="elementoOptions" placeholder="Seleccione el producto…" />
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>Ubicación de origen *</label>
+          <SearchableSelect v-model="trasForm.ubicacion_origen_id" :options="trasUbicOrigenOptions" placeholder="De dónde sale" />
+        </div>
+        <div class="field" style="grid-column:span 2">
+          <label>Ubicación de destino *</label>
+          <SearchableSelect v-model="trasForm.ubicacion_destino_id" :options="trasUbicDestinoOptions" placeholder="A dónde llega" />
+        </div>
+        <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" placeholder="0" v-model="trasForm.cantidad" /></div>
+        <div class="field"><label>Fecha</label><input class="input" type="date" v-model="trasForm.fecha" /></div>
+        <div class="field" style="grid-column:span 2"><label>Observaciones</label><textarea class="textarea" v-model="trasForm.observaciones" /></div>
+      </div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showTras = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveTras">{{ saving ? 'Guardando…' : 'Registrar traslado' }}</button>
+      </template>
+    </BaseModal>
+
     <ConfirmModal v-model:show="confirmShow" title="Inactivar elemento" :message="confirmMsg" confirm-text="Sí, inactivar" danger @confirm="doDelElem" />
-
-    <!-- QUÍMICO (insumo dentro del inventario) -->
-    <BaseModal v-model="showQuimico" :title="editingQuimico ? 'Editar químico' : 'Nuevo químico'">
-      <BaseAlert v-if="quimicoError" type="bad" class="mb-1">{{ quimicoError }}</BaseAlert>
-      <div class="form-row">
-        <div class="field" style="grid-column: span 2"><label>Nombre *</label><input class="input" v-model="quimicoForm.nombre" /></div>
-        <div class="field" style="grid-column: span 2"><label>Categoría (insumo) *</label>
-          <SearchableSelect v-model="quimicoForm.categoria_id" :options="insumoCatOptions" placeholder="Seleccione la categoría de insumo…" />
-        </div>
-        <div class="field"><label>Unidad</label><input class="input" v-model="quimicoForm.unidad" placeholder="Ej. kg, L" /></div>
-        <div class="field"><label>Cantidad inicial</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.cantidad" /></div>
-        <div class="field"><label>Stock mínimo</label><input class="input" type="number" step="0.01" placeholder="0" v-model="quimicoForm.minimo" /></div>
-      </div>
-      <template #footer>
-        <button class="btn btn-ghost" @click="showQuimico = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="saveQuimico">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
-      </template>
-    </BaseModal>
-
-    <!-- DOSIFICACIÓN -->
-    <BaseModal v-model="showDosis" title="Registrar dosificación">
-      <BaseAlert v-if="dosisError" type="bad" class="mb-1">{{ dosisError }}</BaseAlert>
-      <div class="form-row">
-        <div class="field" style="grid-column: span 2"><label>Insumo *</label>
-          <SearchableSelect v-model="dosisForm.elemento_id" :options="quimicoOptionsDisp" placeholder="Seleccione un químico/insumo…" />
-        </div>
-        <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" placeholder="0" v-model="dosisForm.cantidad" /></div>
-        <p class="hint" v-if="dosisUnidadInv" style="grid-column: span 2">Unidad del insumo: <strong>{{ dosisUnidadInv }}</strong> (se guarda con la dosificación).</p>
-        <div class="field" style="grid-column: span 2"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones" /></div>
-      </div>
-      <template #footer>
-        <button class="btn btn-ghost" @click="showDosis = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="saveDosis">{{ saving ? 'Guardando…' : 'Registrar' }}</button>
-      </template>
-    </BaseModal>
   </div>
 </template>
+
+<style scoped>
+.chip {
+  display: inline-block;
+  background: var(--acr-azul-50);
+  color: var(--acr-azul);
+  border-radius: 999px;
+  padding: .1rem .5rem;
+  font-size: .75rem;
+  margin: 0 .2rem .2rem 0;
+}
+.stock-readonly { display: flex; flex-wrap: wrap; gap: .2rem; }
+</style>

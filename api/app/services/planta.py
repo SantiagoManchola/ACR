@@ -20,15 +20,32 @@ def fuera_de_rango(parametro: models.ParametroPlanta, valor: Decimal) -> bool:
 
 
 def aplicar_dosificacion(db: Session, elemento: models.ElementoInventario, cantidad: Decimal):
-    """Descuenta la cantidad dosificada del stock del insumo/químico (punto 5)."""
-    disponible = Decimal(str(elemento.cantidad or 0))
+    """Descuenta la cantidad dosificada del stock del insumo/químico (por ubicación)."""
     c = Decimal(str(cantidad))
+    stocks = db.execute(
+        select(models.StockUbicacion)
+        .where(models.StockUbicacion.elemento_id == elemento.id)
+        .order_by(models.StockUbicacion.cantidad.desc())
+    ).scalars().all()
+    disponible = sum((Decimal(str(s.cantidad)) for s in stocks), Decimal("0"))
     if c > disponible:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Stock insuficiente de '{elemento.nombre}': disponible {disponible}, requerido {c}",
         )
-    elemento.cantidad = disponible - c
+    restante = c
+    for s in stocks:
+        if restante <= 0:
+            break
+        if s.cantidad <= 0:
+            continue
+        sc = Decimal(str(s.cantidad))
+        if sc >= restante:
+            s.cantidad = sc - restante
+            restante = Decimal("0")
+        else:
+            restante -= sc
+            s.cantidad = Decimal("0")
 
 
 def _rango_fechas(stmt, modelo, fecha_inicio, fecha_fin):

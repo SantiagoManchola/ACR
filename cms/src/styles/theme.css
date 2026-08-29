@@ -151,6 +151,19 @@ h3 { font-size: 1rem; }
 .btn-danger:hover:not(:disabled) { background: #b83636; }
 .btn-sm { padding: .35rem .6rem; font-size: .8rem; }
 .btn-block { width: 100%; justify-content: center; }
+.btn-link { background: transparent; border-color: transparent; color: var(--acr-azul); padding-left: .4rem; padding-right: .4rem; }
+.btn-link:hover:not(:disabled) { background: var(--acr-azul-50); text-decoration: underline; }
+
+/* Resumen por ubicación */
+.resumen-ubi { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; }
+.resumen-card {
+  display: flex; flex-direction: column; gap: .15rem;
+  background: #fff; border: 1px solid var(--acr-borde); border-left: 4px solid var(--acr-azul);
+  border-radius: 10px; padding: .7rem .9rem; min-width: 180px;
+}
+.resumen-nombre { display: inline-flex; align-items: center; gap: .35rem; font-weight: 600; color: var(--acr-texto); font-size: .9rem; }
+.resumen-dato { color: var(--acr-muted); font-size: .82rem; }
+.resumen-unidades { color: var(--acr-azul); font-weight: 600; }
 
 /* ----------------------------- Forms ----------------------------- */
 .field { margin-bottom: .9rem; }

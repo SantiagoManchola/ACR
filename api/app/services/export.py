@@ -15,6 +15,9 @@ def _a_texto(v) -> str:
         return "Sí" if v else "No"
     if isinstance(v, (date, datetime)):
         return v.isoformat()
+    if isinstance(v, Decimal):
+        # Sin ceros decimales innecesarios (120.00 -> 120, 120.50 -> 120.5).
+        return f"{v:.2f}".rstrip("0").rstrip(".")
     if isinstance(v, (int, float, str)):
         return str(v)
     if hasattr(v, "value"):  # Enum de SQLAlchemy/Pydantic

@@ -104,9 +104,6 @@ Table elementos_inventario {
   id              serial [pk]
   nombre          varchar(150) [not null]
   categoria_id    integer [not null, ref: > categorias_inventario.id]
-  tipo            varchar(50)  // subclasificación: tubería, codo, químico... (los químicos son insumos → categoría tipo 'insumo')
-  ubicacion       varchar(120) // planta de tratamiento u otra
-  cantidad        numeric(12,2) [not null, default: 0] // existencias (RF-09)
   unidad          varchar(20)  // unidad de medida del elemento
   proveedor       varchar(150)
   valor           numeric(14,2) // info económica (RF-19)
@@ -119,14 +116,59 @@ Table elementos_inventario {
   updated_at      timestamptz [not null, default: `now()`]
   indexes {
     (categoria_id)
-    (ubicacion)
   }
+}
+
+// Existencias del MISMO producto en cada ubicación (un producto puede estar en N lugares)
+Table stock_ubicacion {
+  id              serial [pk]
+  elemento_id     integer [not null, ref: > elementos_inventario.id]
+  ubicacion_id    integer [not null, ref: > ubicaciones.id]
+  cantidad        numeric(12,2) [not null, default: 0] // stock en esa ubicación (RF-09)
+  created_by      integer [ref: > usuarios.id]
+  updated_by      integer [ref: > usuarios.id]
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+  indexes {
+    (elemento_id, ubicacion_id)
+  }
+}
+
+Table ubicaciones {
+  id           serial [pk]
+  nombre       varchar(100) [not null, unique]
+  descripcion  text
+  created_by   integer [ref: > usuarios.id]
+  updated_by   integer [ref: > usuarios.id]
+  created_at   timestamptz [not null, default: `now()`]
+  updated_at   timestamptz [not null, default: `now()`]
+}
+
+Table traslados {
+  id                    serial [pk]
+  elemento_id           integer [not null, ref: > elementos_inventario.id]
+  ubicacion_origen_id   integer [not null, ref: > ubicaciones.id]
+  ubicacion_destino_id  integer [not null, ref: > ubicaciones.id]
+  cantidad              numeric(12,2) [not null]
+  responsable_id      integer [ref: > usuarios.id]
+  observaciones       text
+  fecha               date [not null]
+  hora                time
+  created_by          integer [ref: > usuarios.id]
+  updated_by          integer [ref: > usuarios.id]
+  created_at          timestamptz [not null, default: `now()`]
+  updated_at          timestamptz [not null, default: `now()`]
+  indexes {
+    (fecha)
+  }
+}
 }
 
 Table movimientos_inventario {
   id              serial [pk]
   elemento_id     integer [not null, ref: > elementos_inventario.id]
   tipo            tipo_movimiento [not null] // entrada/salida (RF-10/RF-11)
+  ubicacion_id    integer [not null, ref: > ubicaciones.id] // ubicación del movimiento
   cantidad        numeric(12,2) [not null]
   responsable_id  integer [ref: > usuarios.id] // RF-12
   motivo          varchar(150) // RF-13

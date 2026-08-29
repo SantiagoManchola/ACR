@@ -153,7 +153,12 @@ const dosisCols = [
   { key: 'unidad', label: 'Unidad' },
   { key: 'observaciones', label: 'Observaciones' },
 ]
-function openNewProd() { editingProd.value = null; prodForm.value = emptyProd(); prodError.value = ''; showProd.value = true }
+function openNewProd() {
+  editingProd.value = null
+  const qCat = inv.categorias.find((c) => c.tipo === 'insumo' && /quimic/i.test(c.nombre))
+  prodForm.value = { ...emptyProd(), categoria_id: qCat ? qCat.id : null }
+  prodError.value = ''; showProd.value = true
+}
 function openEditProd(r) { editingProd.value = r; prodForm.value = { ...r, categoria_id: r.categoria_id, minimo: r.minimo ?? '' }; prodError.value = ''; showProd.value = true }
 async function saveProd() {
   prodError.value = ''
