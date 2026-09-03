@@ -367,6 +367,7 @@ class MedicionOut(_ORM):
 class DosificacionCreate(BaseModel):
     elemento_id: int
     cantidad: Decimal = Field(gt=0)  # químico incorporado (descuenta inventario)
+    ubicacion_id: Optional[int] = None  # de dónde sale (p. ej. Planta de tratamiento)
     tasa: Optional[Decimal] = None  # tasa/caudal de la bomba (informativa, ej. ml/min)
     unidad_tasa: Optional[str] = None
     fecha: Optional[date] = None

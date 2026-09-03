@@ -152,11 +152,14 @@ def crear_dosificacion(
     elemento = db.get(models.ElementoInventario, payload.elemento_id)
     if not elemento:
         raise HTTPException(400, "elemento_id inválido")
+    if payload.ubicacion_id is not None and not db.get(models.Ubicacion, payload.ubicacion_id):
+        raise HTTPException(400, "ubicacion_id inválida")
     # La dosificación es un punto de salida del inventario: descuenta del stock
-    # del insumo/químico (punto 5) por ubicación.
+    # del insumo/químico (punto 5). Si viene ubicacion_id (p. ej. Planta de
+    # tratamiento), SOLO descuenta de esa ubicación.
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
-    descuentos = svc_planta.aplicar_dosificacion(db, elemento, payload.cantidad)
+    descuentos = svc_planta.aplicar_dosificacion(db, elemento, payload.cantidad, payload.ubicacion_id)
     d = models.Dosificacion(
         elemento_id=payload.elemento_id,
         cantidad=payload.cantidad,

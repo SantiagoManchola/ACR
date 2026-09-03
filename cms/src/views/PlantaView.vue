@@ -18,10 +18,23 @@ const tab = ref('parametros')
 const saving = ref(false)
 
 const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => [p.id, p])))
-const quimicosBajos = computed(() => inv.quimicos.filter((q) => q.minimo != null && Number(q.cantidad) <= Number(q.minimo)).length)
 const userMap = computed(() => Object.fromEntries(usu.usuarios.map((u) => [u.id, u.nombre])))
 const userOptions = computed(() => usu.usuarios.map((u) => ({ value: u.id, label: u.nombre })))
 const paramOptions = computed(() => planta.parametros.map((p) => ({ value: p.id, label: p.nombre })))
+
+/* Ubicación "Planta de tratamiento": los químicos de este módulo son SOLO los
+   de esa sede (ni disponibilidad ni descuentos de otras ubicaciones). */
+const plantaUbi = computed(() => inv.ubicaciones.find((u) => /planta/i.test(u.nombre || '')) || null)
+const quimicosPlanta = computed(() => {
+  if (!plantaUbi.value) return []
+  return inv.quimicos
+    .map((q) => {
+      const fila = (q.stock || []).find((s) => s.ubicacion_id === plantaUbi.value.id)
+      return fila ? { ...q, cantidad: fila.cantidad, stockPlantaId: fila.id } : null
+    })
+    .filter(Boolean)
+})
+const quimicosBajos = computed(() => quimicosPlanta.value.filter((q) => q.minimo != null && Number(q.cantidad) <= Number(q.minimo)).length)
 
 function buildFiltros(obj) {
   const f = {}
@@ -55,7 +68,7 @@ function limpiarHora() { horaFiltro.value = { fecha_inicio: '', fecha_fin: '' };
 
 function refreshPlanta() {
   return Promise.all([
-    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), planta.loadMediciones(),
+    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadMediciones(),
     planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(),
     planta.loadHoras(), usu.loadUsuarios(),
   ])
@@ -142,8 +155,8 @@ const prodForm = ref(emptyProd())
 const emptyDosis = () => ({ elemento_id: null, cantidad: '', tasa: '', unidad_tasa: 'ml/min', observaciones: '' })
 const dosisForm = ref(emptyDosis())
 const prodMap = computed(() => Object.fromEntries(inv.quimicos.map((p) => [p.id, p.nombre])))
-const prodOptionsDisp = computed(() => inv.quimicos.map((p) => ({
-  value: p.id, label: `${p.nombre} (${fmtNum(p.cantidad)} ${p.unidad || ''})`.trim(),
+const prodOptionsDisp = computed(() => quimicosPlanta.value.map((p) => ({
+  value: p.id, label: `${p.nombre} (${fmtNum(p.cantidad)} ${p.unidad || ''} en planta)`.trim(),
 })))
 const dosisUnidad = computed(() => {
   const p = inv.quimicos.find((x) => x.id === dosisForm.value.elemento_id)
@@ -152,7 +165,7 @@ const dosisUnidad = computed(() => {
 const prodCols = [
   { key: 'nombre', label: 'Insumo' },
   { key: 'unidad', label: 'Unidad' },
-  { key: 'cantidad', label: 'Cantidad disponible', align: 'right', num: true },
+  { key: 'cantidad', label: 'Disponible en planta', align: 'right', num: true },
   { key: 'minimo', label: 'Mínimo', align: 'right', num: true },
   { key: 'estado', label: 'Estado' },
 ]
@@ -177,9 +190,26 @@ async function saveProd() {
   if (!prodForm.value.nombre || !prodForm.value.categoria_id) { prodError.value = 'Nombre y categoría (insumo) son obligatorios.'; return }
   saving.value = true
   try {
-    const payload = { nombre: prodForm.value.nombre, categoria_id: Number(prodForm.value.categoria_id), unidad: prodForm.value.unidad || null, cantidad: Number(prodForm.value.cantidad) || 0, minimo: prodForm.value.minimo === '' ? null : Number(prodForm.value.minimo) }
-    if (editingProd.value) await inv.updateQuimico(editingProd.value.id, payload)
-    else await inv.createQuimico(payload)
+    if (editingProd.value) {
+      // El stock se ajusta por entradas/salidas/traslados desde Inventario,
+      // no editando la ficha del químico.
+      await inv.updateQuimico(editingProd.value.id, {
+        nombre: prodForm.value.nombre,
+        categoria_id: Number(prodForm.value.categoria_id),
+        unidad: prodForm.value.unidad || null,
+        minimo: prodForm.value.minimo === '' ? null : Number(prodForm.value.minimo),
+      })
+    } else {
+      // El químico se crea con su stock inicial EN LA PLANTA
+      await inv.createQuimico({
+        nombre: prodForm.value.nombre,
+        categoria_id: Number(prodForm.value.categoria_id),
+        unidad: prodForm.value.unidad || null,
+        minimo: prodForm.value.minimo === '' ? null : Number(prodForm.value.minimo),
+        ubicacion_id: plantaUbi.value ? Number(plantaUbi.value.id) : null,
+        cantidad_inicial: prodForm.value.cantidad === '' ? 0 : Number(prodForm.value.cantidad),
+      })
+    }
     showProd.value = false; await inv.loadQuimicos()
   } catch (e) { prodError.value = apiError(e) } finally { saving.value = false }
 }
@@ -191,8 +221,9 @@ async function saveDosis() {
   try {
     await planta.createDosificacion({
       elemento_id: Number(dosisForm.value.elemento_id),
-      // Cantidad INCORPORADA (ej. 1 L): esto descuenta del inventario
+      // Cantidad INCORPORADA (ej. 1 L): esto descuenta del inventario EN PLANTA
       cantidad: Number(dosisForm.value.cantidad),
+      ubicacion_id: plantaUbi.value ? Number(plantaUbi.value.id) : null,
       // Tasa de la bomba (ej. ml/min): solo informativa, NO descuenta
       tasa: dosisForm.value.tasa === '' ? null : Number(dosisForm.value.tasa),
       unidad_tasa: dosisForm.value.unidad_tasa || 'ml/min',
@@ -202,12 +233,13 @@ async function saveDosis() {
   } catch (e) { dosisError.value = apiError(e) } finally { saving.value = false }
 }
 
-/* Resumen "¿para cuánto me queda químico?": por cada químico dosificado,
-   stock restante + horas de dosificación continua a la última tasa usada. */
+/* Resumen "¿para cuánto me queda químico?": por cada químico dosificado en
+   planta, stock restante EN PLANTA + horas de dosificación continua a la
+   última tasa usada. */
 const resumenDosis = computed(() => {
   const map = {}
   for (const d of planta.dosificaciones) { // vienen desc por fecha
-    const q = inv.quimicos.find((x) => x.id === d.elemento_id)
+    const q = quimicosPlanta.value.find((x) => x.id === d.elemento_id)
     if (!q) continue
     const cur = map[d.elemento_id] || {
       id: d.elemento_id, nombre: q.nombre, unidad: q.unidad || '',
@@ -292,7 +324,7 @@ async function saveHora() {
 }
 
 onMounted(async () => {
-  await Promise.all([planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), planta.loadMediciones(), planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(), planta.loadHoras(), usu.loadUsuarios()])
+  await Promise.all([planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadMediciones(), planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(), planta.loadHoras(), usu.loadUsuarios()])
 })
 
 /* Al entrar a cada pestaña se refrescan sus datos para no mostrar información desactualizada
@@ -397,13 +429,17 @@ watch(tab, (t) => {
       </DataTable>
     </div>
 
-    <!-- INSUMOS / QUÍMICOS (dentro del inventario) -->
+    <!-- INSUMOS / QUÍMICOS (solo stock de la planta) -->
     <div v-else-if="tab === 'productos'">
+      <BaseAlert v-if="!plantaUbi" type="warn" class="mb-1">
+        No se encontró la ubicación «Planta de tratamiento» (Inventario → Ubicaciones). Créala para gestionar los químicos de la planta.
+      </BaseAlert>
+      <p class="muted" v-else>Mostrando únicamente la disponibilidad de químicos en <strong>{{ plantaUbi.nombre }}</strong>.</p>
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewProd"><AppIcon name="plus" />Nuevo químico</button>
+        <button class="btn btn-primary" @click="openNewProd" :disabled="!plantaUbi"><AppIcon name="plus" />Nuevo químico</button>
         <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
       </div>
-      <DataTable :columns="prodCols" :rows="inv.quimicos" :loading="inv.loading" empty-text="Sin químicos/insumos registrados.">
+      <DataTable :columns="prodCols" :rows="quimicosPlanta" :loading="inv.loading" empty-text="Sin químicos registrados en la planta.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'cantidad'" class="num">{{ fmtNum(row.cantidad) }} {{ row.unidad || '' }}</span>
           <span v-else-if="col.key === 'minimo'">
@@ -570,9 +606,11 @@ watch(tab, (t) => {
           <SearchableSelect v-model="prodForm.categoria_id" :options="insumoCatOptions" placeholder="Seleccione la categoría de insumo…" />
         </div>
         <div class="field"><label>Unidad</label><input class="input" v-model="prodForm.unidad" placeholder="Ej. kg, L" /></div>
-        <div class="field"><label>Cantidad inicial</label><input class="input" type="number" step="0.01" v-model="prodForm.cantidad" placeholder="0" /></div>
+        <div class="field"><label>Cantidad inicial (en planta)</label><input class="input" type="number" step="0.01" v-model="prodForm.cantidad" placeholder="0" :disabled="!!editingProd" /></div>
         <div class="field"><label>Stock mínimo (alerta)</label><input class="input" type="number" step="0.01" v-model="prodForm.minimo" placeholder="0" /></div>
       </div>
+      <p class="hint" v-if="editingProd">El stock se ajusta con entradas, salidas y traslados desde Inventario, no editando la ficha.</p>
+      <p class="hint" v-else>El stock inicial se registra en la ubicación «{{ plantaUbi?.nombre || 'Planta de tratamiento' }}».</p>
       <template #footer>
         <button class="btn btn-ghost" @click="showProd = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveProd">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
@@ -590,7 +628,7 @@ watch(tab, (t) => {
         <div class="field"><label>Unidad de tasa</label><input class="input" v-model="dosisForm.unidad_tasa" placeholder="ml/min" /></div>
       </div>
       <p class="hint" v-if="dosisUnidad">Unidad del insumo: <strong>{{ dosisUnidad }}</strong>.</p>
-      <p class="hint">La <strong>cantidad incorporada</strong> (ej. 1 L de cloro) <strong>descuenta del inventario</strong>. La <strong>tasa</strong> (ej. ml/min de la bomba) es solo informativa: sirve para estimar cuánto tiempo dura el químico puesto en el tanque.</p>
+      <p class="hint">La <strong>cantidad incorporada</strong> (ej. 1 L de cloro) <strong>descuenta del stock en «{{ plantaUbi?.nombre || 'Planta de tratamiento' }}»</strong> — el de otras sedes no se toca. La <strong>tasa</strong> (ej. ml/min de la bomba) es solo informativa: sirve para estimar cuánto tiempo dura el químico puesto en el tanque.</p>
       <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones"></textarea></div>
       <template #footer>
         <button class="btn btn-ghost" @click="showDosis = false">Cancelar</button>

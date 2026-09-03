@@ -61,15 +61,40 @@ def parametros_fuera_rango(db: Session):
     return resultado
 
 
-def aplicar_dosificacion(db: Session, elemento: models.ElementoInventario, cantidad: Decimal):
-    """Descuenta la cantidad de químico INCORPORADA (ej. 1 L) del stock del
-    insumo, por ubicación (empezando por la que más stock tiene).
+def aplicar_dosificacion(
+    db: Session,
+    elemento: models.ElementoInventario,
+    cantidad: Decimal,
+    ubicacion_id: int | None = None,
+):
+    """Descuenta la cantidad de químico INCORPORADA (ej. 1 L) del stock del insumo.
 
-    Devuelve [(ubicacion_id, cantidad_descontada), ...] para registrar la
-    trazabilidad de la salida por cada ubicación. La tasa (ml/min) es
-    informativa y NO se descuenta.
+    Si se indica `ubicacion_id` (p. ej. Planta de tratamiento), descuenta SOLO de
+    esa ubicación: el stock de otras sedes no se toca. Si no, reparte empezando
+    por la ubicación con más stock. Devuelve [(ubicacion_id, cantidad), ...] para
+    la trazabilidad. La tasa (ml/min) es informativa y NO se descuenta.
     """
     c = Decimal(str(cantidad))
+    if ubicacion_id is not None:
+        stock = db.execute(
+            select(models.StockUbicacion).where(
+                models.StockUbicacion.elemento_id == elemento.id,
+                models.StockUbicacion.ubicacion_id == ubicacion_id,
+            )
+        ).scalar_one_or_none()
+        disponible = Decimal(str(stock.cantidad)) if stock else Decimal("0")
+        if c > disponible:
+            ubs = {u.id: u.nombre for u in db.execute(select(models.Ubicacion)).scalars().all()}
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Stock insuficiente de '{elemento.nombre}' en "
+                    f"'{ubs.get(ubicacion_id, ubicacion_id)}': disponible {disponible}, requerido {c}"
+                ),
+            )
+        stock.cantidad = disponible - c
+        return [(ubicacion_id, c)]
+
     stocks = db.execute(
         select(models.StockUbicacion)
         .where(models.StockUbicacion.elemento_id == elemento.id)
