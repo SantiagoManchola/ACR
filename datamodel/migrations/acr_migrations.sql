@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS micromedidores (
   suscriptor_id     INT,
   direccion         VARCHAR(200),
   fecha_instalacion DATE,
+  condicion         ENUM('bueno','defectuoso','frenado') NOT NULL DEFAULT 'bueno',
   estado            ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
   created_by        INT,
   updated_by        INT,

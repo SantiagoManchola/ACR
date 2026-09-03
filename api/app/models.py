@@ -48,6 +48,14 @@ class TipoMovimiento(str, enum.Enum):
     salida = "salida"
 
 
+class CondicionMedidor(str, enum.Enum):
+    """Condición operativa del medidor: bueno (normal), defectuoso (se marca,
+    se fija manualmente) y frenado (contador detenido, se detecta solo)."""
+    bueno = "bueno"
+    defectuoso = "defectuoso"
+    frenado = "frenado"
+
+
 class CategoriaTipo(str, enum.Enum):
     equipo = "equipo"
     herramienta = "herramienta"
@@ -240,6 +248,11 @@ class Micromedidor(Base):
     suscriptor_id = Column(Integer, ForeignKey("suscriptores.id", ondelete="RESTRICT"))
     direccion = Column(String(200))
     fecha_instalacion = Column(Date)
+    condicion = Column(
+        Enum(CondicionMedidor, name="condicion_medidor", native_enum=True),
+        nullable=False,
+        server_default=CondicionMedidor.bueno.value,
+    )
     estado = Column(_estado(), nullable=False, server_default=EstadoRegistro.activo.value)
     created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))

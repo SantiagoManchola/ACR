@@ -58,6 +58,34 @@ function aplicarFiltros() {
 function filtrar() { inv.loadElementos(aplicarFiltros()) }
 function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; inv.loadElementos() }
 
+/* Filtros de traslados */
+const filtrosTras = ref({ elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: '', fecha_fin: '' })
+function aplicarFiltrosTras() {
+  const f = {}
+  if (filtrosTras.value.elemento_id) f.elemento_id = filtrosTras.value.elemento_id
+  if (filtrosTras.value.origen_id) f.ubicacion_origen_id = filtrosTras.value.origen_id
+  if (filtrosTras.value.destino_id) f.ubicacion_destino_id = filtrosTras.value.destino_id
+  if (filtrosTras.value.fecha_inicio) f.fecha_inicio = filtrosTras.value.fecha_inicio
+  if (filtrosTras.value.fecha_fin) f.fecha_fin = filtrosTras.value.fecha_fin
+  return f
+}
+function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras()) }
+function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: '', fecha_fin: '' }; inv.loadTraslados() }
+
+/* Filtros de movimientos */
+const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: '', fecha_fin: '' })
+function aplicarFiltrosMov() {
+  const f = {}
+  if (filtrosMov.value.elemento_id) f.elemento_id = filtrosMov.value.elemento_id
+  if (filtrosMov.value.ubicacion_id) f.ubicacion_id = filtrosMov.value.ubicacion_id
+  if (filtrosMov.value.tipo) f.tipo = filtrosMov.value.tipo
+  if (filtrosMov.value.fecha_inicio) f.fecha_inicio = filtrosMov.value.fecha_inicio
+  if (filtrosMov.value.fecha_fin) f.fecha_fin = filtrosMov.value.fecha_fin
+  return f
+}
+function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov()) }
+function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: '', fecha_fin: '' }; inv.loadMovimientos() }
+
 const catOptions = computed(() => inv.categorias.map((c) => ({ value: c.id, label: `${c.nombre} (${c.tipo})` })))
 const ubiOptions = computed(() => inv.ubicaciones.map((u) => ({ value: u.id, label: u.nombre })))
 const ubicMap = computed(() => Object.fromEntries(inv.ubicaciones.map((u) => [u.id, u.nombre])))
@@ -291,6 +319,19 @@ const trasladoCols = [
 const userMap = computed(() => Object.fromEntries((auth.usuarios || []).map((u) => [u.id, u.nombre])))
 const elemMap = computed(() => Object.fromEntries(inv.elementos.map((e) => [e.id, e])))
 
+/* Quitar el producto de una ubicación cuando su stock quedó en 0 */
+async function removeStock(s) {
+  if (!confirm(`¿Quitar "${editing.value?.nombre}" de la ubicación "${ubicMap.value[s.ubicacion_id] || '—'}"?`)) return
+  try {
+    await inv.deleteStock(s.id)
+    await inv.loadElementos()
+    const actualizado = inv.elementos.find((e) => e.id === s.elemento_id)
+    if (actualizado) editing.value = actualizado
+  } catch (e) {
+    alert(apiError(e))
+  }
+}
+
 function badgeTone(tipo) { return tipo === 'entrada' ? 'badge-ok' : 'badge-warn' }
 
 onMounted(async () => {
@@ -304,7 +345,11 @@ onMounted(async () => {
 
 watch(() => tab.value, (t) => {
   if (t === 'ubicaciones') inv.loadUbicaciones()
-  if (t === 'traslados') inv.loadTraslados()
+  if (t === 'categorias') inv.loadCategorias()
+  if (t === 'elementos') inv.loadElementos(aplicarFiltros())
+  if (t === 'alertas') inv.loadAlertas()
+  if (t === 'traslados') filtrarTras()
+  if (t === 'movimientos') filtrarMov()
 })
 </script>
 
@@ -373,7 +418,7 @@ watch(() => tab.value, (t) => {
         <template #row-actions="{ row }">
           <button class="btn btn-ghost btn-sm" @click="openEdit(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
           <button class="btn btn-ghost btn-sm" @click="openMov(row, 'entrada')" title="Entrada"><AppIcon name="plus" :size="16" /></button>
-          <button class="btn btn-link btn-sm" @click="openMov(row, 'salida')" title="Registrar salida"><AppIcon name="minus" :size="16" /> Salida</button>
+          <button class="btn btn-ghost btn-sm" @click="openMov(row, 'salida')" title="Salida"><AppIcon name="minus" :size="16" /></button>
           <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="askDelElem(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
           <button v-else class="btn btn-ghost btn-sm" @click="reactivarElem(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
@@ -428,6 +473,38 @@ watch(() => tab.value, (t) => {
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewTras"><AppIcon name="swap" />Nuevo traslado</button>
       </div>
+      <div class="filter-bar">
+        <div class="field">
+          <label>Producto</label>
+          <SearchableSelect v-model="filtrosTras.elemento_id" :options="elementoOptions" placeholder="Todos" />
+        </div>
+        <div class="field">
+          <label>Origen</label>
+          <select class="select" v-model="filtrosTras.origen_id">
+            <option value="">Todas</option>
+            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Destino</label>
+          <select class="select" v-model="filtrosTras.destino_id">
+            <option value="">Todas</option>
+            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Desde</label>
+          <input class="input" type="date" v-model="filtrosTras.fecha_inicio" />
+        </div>
+        <div class="field">
+          <label>Hasta</label>
+          <input class="input" type="date" v-model="filtrosTras.fecha_fin" />
+        </div>
+        <div class="field filter-actions">
+          <button class="btn btn-primary" @click="filtrarTras"><AppIcon name="search" />Filtrar</button>
+          <button class="btn btn-ghost" @click="limpiarFiltrosTras"><AppIcon name="refresh" />Limpiar</button>
+        </div>
+      </div>
       <DataTable :columns="trasladoCols" :rows="inv.traslados" :loading="inv.loading" empty-text="Sin traslados registrados.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'elemento'">{{ elemMap[row.elemento_id]?.nombre || row.elemento_id }}</span>
@@ -442,6 +519,39 @@ watch(() => tab.value, (t) => {
 
     <!-- MOVIMIENTOS -->
     <div v-else-if="tab === 'movimientos'">
+      <div class="filter-bar">
+        <div class="field">
+          <label>Elemento</label>
+          <SearchableSelect v-model="filtrosMov.elemento_id" :options="elementoOptions" placeholder="Todos" />
+        </div>
+        <div class="field">
+          <label>Ubicación</label>
+          <select class="select" v-model="filtrosMov.ubicacion_id">
+            <option value="">Todas</option>
+            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Tipo</label>
+          <select class="select" v-model="filtrosMov.tipo">
+            <option value="">Todos</option>
+            <option value="entrada">Entrada</option>
+            <option value="salida">Salida</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Desde</label>
+          <input class="input" type="date" v-model="filtrosMov.fecha_inicio" />
+        </div>
+        <div class="field">
+          <label>Hasta</label>
+          <input class="input" type="date" v-model="filtrosMov.fecha_fin" />
+        </div>
+        <div class="field filter-actions">
+          <button class="btn btn-primary" @click="filtrarMov"><AppIcon name="search" />Filtrar</button>
+          <button class="btn btn-ghost" @click="limpiarFiltrosMov"><AppIcon name="refresh" />Limpiar</button>
+        </div>
+      </div>
       <DataTable :columns="movCols" :rows="inv.movimientos" :loading="inv.loading" empty-text="Sin movimientos registrados.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'elemento'">{{ inv.elementos.find((e) => e.id === row.elemento_id)?.nombre || row.elemento_id }}</span>
@@ -517,8 +627,12 @@ watch(() => tab.value, (t) => {
       <div v-if="editing && editing.stock && editing.stock.length" class="field">
         <label>Existencias actuales por ubicación</label>
         <div class="stock-readonly">
-          <span v-for="s in editing.stock" :key="s.id" class="chip">{{ ubicMap[s.ubicacion_id] || '—' }}: {{ fmtNum(s.cantidad) }}</span>
+          <span v-for="s in editing.stock" :key="s.id" class="chip-stock">
+            <span>{{ ubicMap[s.ubicacion_id] || '—' }}: {{ fmtNum(s.cantidad) }}</span>
+            <button v-if="Number(s.cantidad) === 0" class="chip-del" title="Quitar de esta ubicación" @click="removeStock(s)"><AppIcon name="trash" :size="14" /></button>
+          </span>
         </div>
+        <p class="muted sm">Puedes quitar el producto de una ubicación cuando su stock quedó en 0 (ya no se procesa allí).</p>
       </div>
       <template #footer>
         <button class="btn btn-ghost" @click="showForm = false">Cancelar</button>
@@ -630,5 +744,28 @@ watch(() => tab.value, (t) => {
   font-size: .75rem;
   margin: 0 .2rem .2rem 0;
 }
+.chip-stock {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  background: var(--acr-azul-50);
+  color: var(--acr-azul);
+  border-radius: 999px;
+  padding: .1rem .35rem .1rem .6rem;
+  font-size: .75rem;
+  margin: 0 .2rem .2rem 0;
+}
+.chip-del {
+  display: inline-flex;
+  border: none;
+  background: transparent;
+  color: var(--acr-bad);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 1;
+}
+.chip-del:hover { background: rgba(184,54,54,.12); }
 .stock-readonly { display: flex; flex-wrap: wrap; gap: .2rem; }
+.muted.sm { font-size: .78rem; margin-top: .3rem; }
 </style>

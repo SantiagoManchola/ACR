@@ -32,6 +32,14 @@ enum estado_registro {
   inactivo
 }
 
+// Condición operativa del medidor: frenado se detecta automáticamente
+// (3 lecturas mensuales iguales) y se desactiva con la siguiente medición distinta.
+enum condicion_medidor {
+  bueno
+  defectuoso
+  frenado
+}
+
 enum categoria_tipo {
   equipo
   herramienta
@@ -213,9 +221,10 @@ Table micromedidores {
   id                serial [pk]
   serial            varchar(50) [not null, unique] // RF-23
   tipo              varchar(50) // RF-23
-  suscriptor_id     integer [ref: > suscriptores.id] // RF-24
+  suscriptor_id     integer [ref: > suscriptores.id] // RF-24 (un suscriptor tiene un medidor; no cambia de suscriptor)
   direccion         varchar(200) // RF-23
   fecha_instalacion date // RF-23
+  condicion         condicion_medidor [not null, default: 'bueno'] // bueno/defectuoso/frenado (automático)
   estado            estado_registro [not null, default: 'activo'] // soft delete
   created_by        integer [ref: > usuarios.id]
   updated_by        integer [ref: > usuarios.id]

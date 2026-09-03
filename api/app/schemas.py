@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, computed_field
 from .config import settings
 from .models import (
     CategoriaTipo,
+    CondicionMedidor,
     EstadoRegistro,
     TipoAgua,
     TipoMovimiento,
@@ -261,6 +262,8 @@ class MicromedidorCreate(BaseModel):
     suscriptor_id: Optional[int] = None
     direccion: Optional[str] = None
     fecha_instalacion: Optional[date] = None
+    # 'bueno' por defecto; 'defectuoso' se marca manualmente. 'frenado' es automático.
+    condicion: CondicionMedidor = CondicionMedidor.bueno
 
 
 class MicromedidorUpdate(BaseModel):
@@ -269,6 +272,7 @@ class MicromedidorUpdate(BaseModel):
     suscriptor_id: Optional[int] = None
     direccion: Optional[str] = None
     fecha_instalacion: Optional[date] = None
+    condicion: Optional[CondicionMedidor] = None
     estado: Optional[EstadoRegistro] = None
 
 
@@ -279,6 +283,7 @@ class MicromedidorOut(_ORM):
     suscriptor_id: Optional[int] = None
     direccion: Optional[str] = None
     fecha_instalacion: Optional[date] = None
+    condicion: CondicionMedidor
     estado: EstadoRegistro
 
 
@@ -287,7 +292,9 @@ class LecturaCreate(BaseModel):
     suscriptor_id: int
     fecha: Optional[date] = None
     hora: Optional[time] = None
-    lectura: Decimal
+    # None cuando la lectura es ESTIMADA (no fue posible tomar la medición):
+    # el sistema calcula el valor del medidor con la lectura previa + promedio.
+    lectura: Optional[Decimal] = None
     responsable_id: Optional[int] = None
     novedad: Optional[str] = None
     irregular: bool = False

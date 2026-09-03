@@ -121,11 +121,12 @@ def listar_micromedidores(
     serial: str | None = None,
     suscriptor_id: int | None = None,
     estado: str | None = None,
+    condicion: str | None = None,
     sector: str | None = None,
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
     return svc_mm.filtrar_micromedidores(
-        db, serial=serial, suscriptor_id=suscriptor_id, estado=estado, sector=sector
+        db, serial=serial, suscriptor_id=suscriptor_id, estado=estado, sector=sector, condicion=condicion
     )
 
 
@@ -210,20 +211,32 @@ def crear_lectura(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
 ):
-    if not db.get(models.Micromedidor, payload.micromedidor_id):
+    micromedidor = db.get(models.Micromedidor, payload.micromedidor_id)
+    if not micromedidor:
         raise HTTPException(400, "micromedidor_id inválido")
+    if micromedidor.estado == models.EstadoRegistro.inactivo:
+        raise HTTPException(400, "El micromedidor está inactivo: no se pueden registrar lecturas")
     if not db.get(models.Suscriptor, payload.suscriptor_id):
         raise HTTPException(400, "suscriptor_id inválido")
 
-    consumo, promedio_usado = svc_mm.calcular_consumo(
-        db, payload.micromedidor_id, payload.lectura, payload.fecha or date.today()
+    estimada = bool(payload.irregular)
+    if estimada and payload.lectura is not None:
+        raise HTTPException(
+            400,
+            "Una lectura estimada no lleva valor de medidor: el sistema lo calcula con la lectura previa + promedio histórico",
+        )
+    if not estimada and payload.lectura is None:
+        raise HTTPException(400, "El valor del medidor es obligatorio para una lectura física")
+
+    valor, consumo, promedio_usado = svc_mm.resolver_lectura(
+        db, payload.micromedidor_id, payload.lectura, payload.fecha or date.today(), estimada
     )
     lectura = models.Lectura(
         micromedidor_id=payload.micromedidor_id,
         suscriptor_id=payload.suscriptor_id,
         fecha=payload.fecha or date.today(),
         hora=payload.hora or datetime.now().time(),
-        lectura=payload.lectura,
+        lectura=valor,
         consumo=consumo,
         promedio_usado=promedio_usado,
         responsable_id=usuario.id,
@@ -232,6 +245,10 @@ def crear_lectura(
     )
     sellar(lectura, usuario, nuevo=True)
     db.add(lectura)
+    db.flush()
+    # Frenado automático: 3 lecturas iguales seguidas -> frenado;
+    # medición distinta a la anterior estando frenado -> vuelve a bueno.
+    svc_mm.evaluar_condicion(db, payload.micromedidor_id)
     db.commit()
     db.refresh(lectura)
     return lectura

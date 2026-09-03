@@ -62,9 +62,12 @@ export const useInventarioStore = defineStore('inventario', {
       await this.loadQuimicos()
       return data
     },
-    async loadTraslados() {
-      const { data } = await client.get('/inventario/traslados')
+    async loadTraslados(filtros = {}) {
+      const { data } = await client.get('/inventario/traslados', { params: filtros })
       this.traslados = data
+    },
+    async deleteStock(id) {
+      await client.delete(`/inventario/stock/${id}`)
     },
     async createTraslado(p) {
       const { data } = await client.post('/inventario/traslados', p)
@@ -91,10 +94,8 @@ export const useInventarioStore = defineStore('inventario', {
       const { data } = await client.post(`/inventario/${id}/${tipo}`, payload)
       return data
     },
-    async loadMovimientos(elementoId) {
-      const { data } = await client.get('/inventario/movimientos', {
-        params: { elemento_id: elementoId },
-      })
+    async loadMovimientos(filtros = {}) {
+      const { data } = await client.get('/inventario/movimientos', { params: filtros })
       this.movimientos = data
     },
     async loadAlertas() {

@@ -250,12 +250,28 @@ def actualizar_ubicacion(
 # ----------------------------- Traslados ---------------------------------------
 @router.get("/traslados", response_model=list[TrasladoOut], summary="Listar traslados")
 def listar_traslados(
+    elemento_id: int | None = None,
+    ubicacion_origen_id: int | None = None,
+    ubicacion_destino_id: int | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
 ):
+    stmt = select(models.Traslado)
+    if elemento_id:
+        stmt = stmt.where(models.Traslado.elemento_id == elemento_id)
+    if ubicacion_origen_id:
+        stmt = stmt.where(models.Traslado.ubicacion_origen_id == ubicacion_origen_id)
+    if ubicacion_destino_id:
+        stmt = stmt.where(models.Traslado.ubicacion_destino_id == ubicacion_destino_id)
+    if fecha_inicio:
+        stmt = stmt.where(models.Traslado.fecha >= fecha_inicio)
+    if fecha_fin:
+        stmt = stmt.where(models.Traslado.fecha <= fecha_fin)
     ubs = _mapa_ubicaciones(db)
     filas = db.execute(
-        select(models.Traslado).order_by(
+        stmt.order_by(
             models.Traslado.fecha.desc(), models.Traslado.hora.desc()
         )
     ).scalars().all()
@@ -312,16 +328,50 @@ def crear_traslado(
     )
 
 
+# ----------------------------- Stock por ubicación ----------------------------
+@router.delete("/stock/{stock_id}", summary="Quitar producto de una ubicación")
+def eliminar_stock(
+    stock_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+):
+    """Elimina la existencia del producto en una ubicación concreta.
+
+    Solo se permite cuando el stock es 0 (el producto ya no se procesa allí).
+    Si tiene stock, debe trasladarse o registrarse salida primero.
+    """
+    s = db.get(models.StockUbicacion, stock_id)
+    if not s:
+        raise HTTPException(404, "Registro de stock no encontrado")
+    if Decimal(str(s.cantidad)) > 0:
+        raise HTTPException(400, "Solo se puede quitar una ubicación con stock en 0")
+    db.delete(s)
+    db.commit()
+    return {"ok": True, "mensaje": "Producto quitado de la ubicación"}
+
+
 # ----------------------------- Movimientos y alertas (literales) -------------
 @router.get("/movimientos", response_model=list[MovimientoOut], summary="Historial de movimientos")
 def movimientos(
     elemento_id: int | None = None,
+    ubicacion_id: int | None = None,
+    tipo: str | None = None,
+    fecha_inicio: str | None = None,
+    fecha_fin: str | None = None,
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
 ):
     stmt = select(models.MovimientoInventario)
     if elemento_id:
         stmt = stmt.where(models.MovimientoInventario.elemento_id == elemento_id)
+    if ubicacion_id:
+        stmt = stmt.where(models.MovimientoInventario.ubicacion_id == ubicacion_id)
+    if tipo:
+        stmt = stmt.where(models.MovimientoInventario.tipo == tipo)
+    if fecha_inicio:
+        stmt = stmt.where(models.MovimientoInventario.fecha >= fecha_inicio)
+    if fecha_fin:
+        stmt = stmt.where(models.MovimientoInventario.fecha <= fecha_fin)
     stmt = stmt.order_by(
         models.MovimientoInventario.fecha.desc(),
         models.MovimientoInventario.hora.desc(),

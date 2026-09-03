@@ -1,46 +1,85 @@
 """Lógica de micromedidores: cálculo de consumo y promedio histórico.
 
-Regla de negocio 1 y 2: lectura mensual; si no hay lectura previa válida se
-usa el promedio histórico (promedio_usado=True, consumo=promedio o NULL).
+Regla de negocio 1 y 2: lectura mensual; cuando NO es posible tomar la
+medición física se registra una lectura ESTIMADA: el valor del medidor se
+calcula como lectura previa + promedio histórico de consumo
+(promedio_usado=True) y el consumo registrado es ese promedio.
 """
 from datetime import date
 from decimal import Decimal
+
+from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
 
 
-def calcular_consumo(
-    db: Session,
-    micromedidor_id: int,
-    lectura: Decimal,
-    fecha,
-) -> tuple[Decimal | None, bool]:
-    """Devuelve (consumo, promedio_usado)."""
-    previa = (
+def _lectura_previa(db: Session, micromedidor_id: int, fecha):
+    """Última lectura registrada hasta `fecha` (incluida la misma fecha: lecturas
+    registradas antes el mismo día sí cuentan como previas)."""
+    return (
         db.execute(
             select(models.Lectura)
             .where(
                 models.Lectura.micromedidor_id == micromedidor_id,
-                models.Lectura.fecha < fecha,
+                models.Lectura.fecha <= fecha,
             )
-            .order_by(models.Lectura.fecha.desc())
+            .order_by(models.Lectura.fecha.desc(), models.Lectura.id.desc())
         )
         .scalars()
         .first()
     )
 
-    if previa is not None and previa.lectura is not None:
-        return (Decimal(str(lectura)) - Decimal(str(previa.lectura))), False
 
-    promedio = db.execute(
+def _promedio_historico(db: Session, micromedidor_id: int):
+    """Promedio de consumos registrados (None si no hay ninguno)."""
+    return db.execute(
         select(func.avg(models.Lectura.consumo)).where(
             models.Lectura.micromedidor_id == micromedidor_id,
             models.Lectura.consumo.isnot(None),
         )
     ).scalar()
-    return promedio, True
+
+
+def resolver_lectura(
+    db: Session,
+    micromedidor_id: int,
+    lectura: Decimal | None,
+    fecha,
+    estimada: bool = False,
+) -> tuple[Decimal, Decimal | None, bool]:
+    """Resuelve (valor_del_medidor, consumo, promedio_usado) al registrar una lectura.
+
+    - Lectura física: consumo = lectura - lectura previa (None si es la primera).
+    - Lectura estimada (no fue posible tomar la medición): valor del medidor =
+      lectura previa + promedio histórico; consumo = ese promedio
+      (promedio_usado=True).
+    """
+    previa = _lectura_previa(db, micromedidor_id, fecha)
+
+    if estimada:
+        if previa is None or previa.lectura is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No hay lectura previa para estimar el valor del medidor; registre primero una lectura física.",
+            )
+        promedio = _promedio_historico(db, micromedidor_id)
+        if promedio is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No hay consumos históricos para estimar la lectura.",
+            )
+        valor = Decimal(str(previa.lectura)) + Decimal(str(promedio))
+        return valor, Decimal(str(promedio)), True
+
+    if previa is not None and previa.lectura is not None:
+        return (
+            Decimal(str(lectura)),
+            Decimal(str(lectura)) - Decimal(str(previa.lectura)),
+            False,
+        )
+    return Decimal(str(lectura)), None, False
 
 
 def filtrar_suscriptores(db: Session, *, nombre=None, identificacion=None, sector=None, tipo_usuario=None):
@@ -56,7 +95,51 @@ def filtrar_suscriptores(db: Session, *, nombre=None, identificacion=None, secto
     return db.execute(stmt.order_by(models.Suscriptor.nombre)).scalars().all()
 
 
-def filtrar_micromedidores(db: Session, *, serial=None, suscriptor_id=None, estado=None, sector=None):
+def _valor_lectura(l) -> Decimal:
+    """Valor de la lectura normalizado a la escala de la columna (12,3).
+
+    Necesario porque la lectura recién insertada llega como Decimal('100')
+    mientras las persistidas vuelven de MySQL como Decimal('100.000'):
+    comparar str() daría falsos 'diferentes' y rompería el frenado.
+    """
+    return Decimal(str(l.lectura)).quantize(Decimal("0.001"))
+
+
+def evaluar_condicion(db: Session, micromedidor_id: int):
+    """Estado operativo del medidor según sus lecturas (bueno/defectuoso/frenado).
+
+    Frenado automático: cuando las 3 últimas lecturas mensuales son idénticas
+    el contador está frenado (no registra paso de agua). El aviso permanece
+    hasta que llegue una medición distinta a la anterior, momento en el que el
+    medidor vuelve a 'bueno'. 'defectuoso' (se marca) lo fija el operario.
+    """
+    mm = db.get(models.Micromedidor, micromedidor_id)
+    if mm is None:
+        return None
+    ultimas = db.execute(
+        select(models.Lectura)
+        .where(models.Lectura.micromedidor_id == micromedidor_id)
+        .order_by(models.Lectura.fecha.desc(), models.Lectura.id.desc())
+        .limit(3)
+    ).scalars().all()
+
+    # 3 lecturas consecutivas con el mismo valor -> frenado
+    if len(ultimas) >= 3 and len({_valor_lectura(l) for l in ultimas}) == 1:
+        mm.condicion = models.CondicionMedidor.frenado
+        return mm.condicion
+
+    # Estaba frenado y la medición más reciente ya difiere -> sale de frenado
+    if (
+        mm.condicion == models.CondicionMedidor.frenado
+        and len(ultimas) >= 2
+        and _valor_lectura(ultimas[0]) != _valor_lectura(ultimas[1])
+    ):
+        mm.condicion = models.CondicionMedidor.bueno
+        return mm.condicion
+    return None
+
+
+def filtrar_micromedidores(db: Session, *, serial=None, suscriptor_id=None, estado=None, sector=None, condicion=None):
     stmt = select(models.Micromedidor)
     if serial:
         stmt = stmt.where(models.Micromedidor.serial.ilike(f"%{serial}%"))
@@ -64,6 +147,8 @@ def filtrar_micromedidores(db: Session, *, serial=None, suscriptor_id=None, esta
         stmt = stmt.where(models.Micromedidor.suscriptor_id == suscriptor_id)
     if estado:
         stmt = stmt.where(models.Micromedidor.estado == estado)
+    if condicion:
+        stmt = stmt.where(models.Micromedidor.condicion == condicion)
     if sector:
         stmt = stmt.join(models.Suscriptor, models.Micromedidor.suscriptor_id == models.Suscriptor.id)
         stmt = stmt.where(models.Suscriptor.sector == sector)
@@ -84,7 +169,9 @@ def filtrar_lecturas(db: Session, *, micromedidor_id=None, suscriptor_id=None,
         stmt = stmt.where(models.Lectura.fecha >= fecha_inicio)
     if fecha_fin:
         stmt = stmt.where(models.Lectura.fecha <= fecha_fin)
-    return db.execute(stmt.order_by(models.Lectura.fecha.desc())).scalars().all()
+    return db.execute(
+        stmt.order_by(models.Lectura.fecha.desc(), models.Lectura.hora.desc())
+    ).scalars().all()
 
 
 def sectores_disponibles(db: Session):
@@ -101,7 +188,7 @@ def historial_suscriptor(db: Session, sid: int):
     ).scalars().all()
     lecturas = db.execute(
         select(models.Lectura).where(models.Lectura.suscriptor_id == sid)
-        .order_by(models.Lectura.fecha.desc())
+        .order_by(models.Lectura.fecha.desc(), models.Lectura.hora.desc())
     ).scalars().all()
     return {
         "suscriptor": suscriptor,
@@ -114,7 +201,7 @@ def historial_micromedidor(db: Session, mid: int):
     micromedidor = db.get(models.Micromedidor, mid)
     lecturas = db.execute(
         select(models.Lectura).where(models.Lectura.micromedidor_id == mid)
-        .order_by(models.Lectura.fecha.desc())
+        .order_by(models.Lectura.fecha.desc(), models.Lectura.hora.desc())
     ).scalars().all()
     return {
         "micromedidor": micromedidor,

@@ -2,6 +2,7 @@
 import csv
 import io
 from datetime import date, datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Iterable, Sequence
 
