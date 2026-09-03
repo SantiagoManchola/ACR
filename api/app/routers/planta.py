@@ -16,6 +16,7 @@ from ..schemas import (
     MedicionCreate,
     MedicionOut,
     ParametroCreate,
+    ParametroFueraRangoOut,
     ParametroOut,
     ParametroUpdate,
     TipoMovimiento,
@@ -122,14 +123,18 @@ def listar_mediciones(
     )
 
 
-@router.get("/mediciones/fuera-rango", response_model=list[MedicionOut], summary="Mediciones fuera de rango")
-def mediciones_fuera_rango(
+@router.get(
+    "/parametros-fuera-rango",
+    response_model=list[ParametroFueraRangoOut],
+    summary="Parámetros fuera de rango según su última medición (estado actual)",
+)
+def parametros_fuera_rango(
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
-    return db.execute(
-        select(models.Medicion).where(models.Medicion.fuera_rango.is_(True))
-        .order_by(models.Medicion.fecha.desc())
-    ).scalars().all()
+    """No lista mediciones pasadas: solo alerta el parámetro cuya medición más
+    reciente está fuera de rango. Al ajustar el proceso y registrar una nueva
+    medición en rango, el parámetro deja de alertar."""
+    return svc_planta.parametros_fuera_rango(db)
 
 
 # ----------------------------- Insumos / dosificación ------------------------
@@ -148,14 +153,16 @@ def crear_dosificacion(
     if not elemento:
         raise HTTPException(400, "elemento_id inválido")
     # La dosificación es un punto de salida del inventario: descuenta del stock
-    # del insumo/químico (punto 5).
+    # del insumo/químico (punto 5) por ubicación.
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
-    svc_planta.aplicar_dosificacion(db, elemento, payload.cantidad)
+    descuentos = svc_planta.aplicar_dosificacion(db, elemento, payload.cantidad)
     d = models.Dosificacion(
         elemento_id=payload.elemento_id,
         cantidad=payload.cantidad,
         unidad=elemento.unidad,
+        tasa=payload.tasa,
+        unidad_tasa=payload.unidad_tasa or "ml/min",
         fecha=fecha,
         hora=hora,
         responsable_id=payload.responsable_id or usuario.id,
@@ -163,20 +170,22 @@ def crear_dosificacion(
     )
     sellar(d, usuario, nuevo=True)
     db.add(d)
-    # También registra la salida en el historial de movimientos del inventario
-    # para mantener la trazabilidad (la dosificación es un punto de salida).
-    movimiento = models.MovimientoInventario(
-        elemento_id=elemento.id,
-        tipo=TipoMovimiento.salida,
-        cantidad=payload.cantidad,
-        responsable_id=payload.responsable_id or usuario.id,
-        motivo="Dosificación",
-        observaciones=payload.observaciones,
-        fecha=fecha,
-        hora=hora,
-    )
-    sellar(movimiento, usuario, nuevo=True)
-    db.add(movimiento)
+    # Registra la salida en el historial de movimientos del inventario por cada
+    # ubicación descontada, para mantener la trazabilidad.
+    for ubicacion_id, cant in descuentos:
+        movimiento = models.MovimientoInventario(
+            elemento_id=elemento.id,
+            ubicacion_id=ubicacion_id,
+            tipo=TipoMovimiento.salida,
+            cantidad=cant,
+            responsable_id=payload.responsable_id or usuario.id,
+            motivo="Dosificación",
+            observaciones=payload.observaciones,
+            fecha=fecha,
+            hora=hora,
+        )
+        sellar(movimiento, usuario, nuevo=True)
+        db.add(movimiento)
     db.commit()
     db.refresh(d)
     return d

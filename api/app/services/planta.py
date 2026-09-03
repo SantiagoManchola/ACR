@@ -19,8 +19,56 @@ def fuera_de_rango(parametro: models.ParametroPlanta, valor: Decimal) -> bool:
     return False
 
 
+def parametros_fuera_rango(db: Session):
+    """Parámetros fuera de rango según su ÚLTIMA medición (estado actual).
+
+    Cada medición guarda su bandera `fuera_rango` como historial, pero la
+    alerta ya NO lista mediciones pasadas: solo alerta el parámetro cuya
+    medición más reciente está fuera de rango. Si se ajusta el proceso y la
+    siguiente medición entra en rango, el parámetro deja de alertar solo.
+    """
+    parametros = db.execute(
+        select(models.ParametroPlanta).where(
+            models.ParametroPlanta.estado == models.EstadoRegistro.activo
+        )
+    ).scalars().all()
+    resultado = []
+    for p in parametros:
+        ultima = db.execute(
+            select(models.Medicion)
+            .where(models.Medicion.parametro_id == p.id)
+            .order_by(
+                models.Medicion.fecha.desc(),
+                models.Medicion.hora.desc(),
+                models.Medicion.id.desc(),
+            )
+            .limit(1)
+        ).scalars().first()
+        if ultima is not None and ultima.fuera_rango:
+            resultado.append({
+                "parametro_id": p.id,
+                "parametro": p.nombre,
+                "tipo_agua": p.tipo_agua.value if hasattr(p.tipo_agua, "value") else str(p.tipo_agua),
+                "unidad": p.unidad,
+                "valor_min": p.valor_min,
+                "valor_max": p.valor_max,
+                "valor": ultima.valor,
+                "fecha": ultima.fecha,
+                "hora": ultima.hora,
+                "medicion_id": ultima.id,
+                "accion_correctiva": ultima.accion_correctiva,
+            })
+    return resultado
+
+
 def aplicar_dosificacion(db: Session, elemento: models.ElementoInventario, cantidad: Decimal):
-    """Descuenta la cantidad dosificada del stock del insumo/químico (por ubicación)."""
+    """Descuenta la cantidad de químico INCORPORADA (ej. 1 L) del stock del
+    insumo, por ubicación (empezando por la que más stock tiene).
+
+    Devuelve [(ubicacion_id, cantidad_descontada), ...] para registrar la
+    trazabilidad de la salida por cada ubicación. La tasa (ml/min) es
+    informativa y NO se descuenta.
+    """
     c = Decimal(str(cantidad))
     stocks = db.execute(
         select(models.StockUbicacion)
@@ -34,18 +82,18 @@ def aplicar_dosificacion(db: Session, elemento: models.ElementoInventario, canti
             detail=f"Stock insuficiente de '{elemento.nombre}': disponible {disponible}, requerido {c}",
         )
     restante = c
+    descuentos = []
     for s in stocks:
         if restante <= 0:
             break
-        if s.cantidad <= 0:
-            continue
         sc = Decimal(str(s.cantidad))
-        if sc >= restante:
-            s.cantidad = sc - restante
-            restante = Decimal("0")
-        else:
-            restante -= sc
-            s.cantidad = Decimal("0")
+        if sc <= 0:
+            continue
+        tomar = min(sc, restante)
+        s.cantidad = sc - tomar
+        descuentos.append((s.ubicacion_id, tomar))
+        restante -= tomar
+    return descuentos
 
 
 def _rango_fechas(stmt, modelo, fecha_inicio, fecha_fin):

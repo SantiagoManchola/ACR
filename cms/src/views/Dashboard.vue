@@ -37,7 +37,7 @@ function buildKpis() {
     out.push({ label: 'Micromedidores', value: mm.micromedidores.length, to: '/micromedidores', icon: 'gauge' })
   }
   if (['admin', 'operario', 'administrativo'].includes(rol.value)) {
-    out.push({ label: 'Mediciones fuera de rango', value: planta.fueraRango.length, to: '/planta', icon: 'alert', tone: planta.fueraRango.length ? 'warn' : 'ok' })
+    out.push({ label: 'Parámetros fuera de rango', value: planta.fueraRango.length, to: '/planta', icon: 'alert', tone: planta.fueraRango.length ? 'warn' : 'ok' })
   }
   kpis.value = out
 }

@@ -103,6 +103,17 @@ const medCols = [
   { key: 'fuera_rango', label: 'Estado' },
   { key: 'accion_correctiva', label: 'Acción correctiva' },
 ]
+/* Pestaña "Fuera de rango": estado ACTUAL por parámetro (última medición) */
+const fueraCols = [
+  { key: 'parametro', label: 'Parámetro' },
+  { key: 'tipo_agua', label: 'Tipo de agua' },
+  { key: 'valor', label: 'Último valor', align: 'right', num: true },
+  { key: 'unidad', label: 'Unidad' },
+  { key: 'rango', label: 'Rango' },
+  { key: 'fecha', label: 'Desde' },
+  { key: 'hora', label: 'Hora' },
+  { key: 'accion_correctiva', label: 'Acción correctiva' },
+]
 function openNewMed() { medForm.value = emptyMed(); medError.value = ''; showMed.value = true }
 async function saveMed() {
   medError.value = ''
@@ -128,7 +139,7 @@ const prodError = ref('')
 const dosisError = ref('')
 const emptyProd = () => ({ nombre: '', categoria_id: null, unidad: '', cantidad: 0, minimo: '' })
 const prodForm = ref(emptyProd())
-const emptyDosis = () => ({ elemento_id: null, cantidad: '', observaciones: '' })
+const emptyDosis = () => ({ elemento_id: null, cantidad: '', tasa: '', unidad_tasa: 'ml/min', observaciones: '' })
 const dosisForm = ref(emptyDosis())
 const prodMap = computed(() => Object.fromEntries(inv.quimicos.map((p) => [p.id, p.nombre])))
 const prodOptionsDisp = computed(() => inv.quimicos.map((p) => ({
@@ -149,7 +160,8 @@ const dosisCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
   { key: 'insumo', label: 'Insumo' },
-  { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
+  { key: 'tasa', label: 'Tasa (bomba)' },
+  { key: 'cantidad', label: 'Aplicado', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'observaciones', label: 'Observaciones' },
 ]
@@ -174,13 +186,62 @@ async function saveProd() {
 function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
 async function saveDosis() {
   dosisError.value = ''
-  if (!dosisForm.value.elemento_id || !dosisForm.value.cantidad) { dosisError.value = 'Insumo y cantidad son obligatorios.'; return }
+  if (!dosisForm.value.elemento_id || !dosisForm.value.cantidad) { dosisError.value = 'Insumo y cantidad incorporada son obligatorios.'; return }
   saving.value = true
   try {
-    await planta.createDosificacion({ elemento_id: Number(dosisForm.value.elemento_id), cantidad: Number(dosisForm.value.cantidad), observaciones: dosisForm.value.observaciones || null })
+    await planta.createDosificacion({
+      elemento_id: Number(dosisForm.value.elemento_id),
+      // Cantidad INCORPORADA (ej. 1 L): esto descuenta del inventario
+      cantidad: Number(dosisForm.value.cantidad),
+      // Tasa de la bomba (ej. ml/min): solo informativa, NO descuenta
+      tasa: dosisForm.value.tasa === '' ? null : Number(dosisForm.value.tasa),
+      unidad_tasa: dosisForm.value.unidad_tasa || 'ml/min',
+      observaciones: dosisForm.value.observaciones || null,
+    })
      showDosis.value = false; await Promise.all([planta.loadDosificaciones(), inv.loadQuimicos()])
   } catch (e) { dosisError.value = apiError(e) } finally { saving.value = false }
 }
+
+/* Resumen "¿para cuánto me queda químico?": por cada químico dosificado,
+   stock restante + horas de dosificación continua a la última tasa usada. */
+const resumenDosis = computed(() => {
+  const map = {}
+  for (const d of planta.dosificaciones) { // vienen desc por fecha
+    const q = inv.quimicos.find((x) => x.id === d.elemento_id)
+    if (!q) continue
+    const cur = map[d.elemento_id] || {
+      id: d.elemento_id, nombre: q.nombre, unidad: q.unidad || '',
+      stock: Number(q.cantidad) || 0, minimo: q.minimo,
+      tasa: null, unidadTasa: 'ml/min', ultimaFecha: null,
+    }
+    if (!cur.ultimaFecha) {
+      cur.ultimaFecha = d.fecha
+      if (d.tasa != null) { cur.tasa = Number(d.tasa); cur.unidadTasa = d.unidad_tasa || 'ml/min' }
+    }
+    map[d.elemento_id] = cur
+  }
+  return Object.values(map).map((r) => {
+    const u = r.unidad.toLowerCase()
+    let stockMl = null
+    if (['l', 'lt', 'litro', 'litros'].includes(u)) stockMl = r.stock * 1000
+    else if (['ml', 'mililitro', 'mililitros'].includes(u)) stockMl = r.stock
+    r.horasRestantes = (r.tasa && stockMl != null && r.tasa > 0) ? stockMl / (r.tasa * 60) : null
+    return r
+  })
+})
+
+/* ---------------- Horas: gráfico de barras por día ---------------- */
+const horasPorDia = computed(() => {
+  const map = {}
+  for (const h of planta.horas) map[h.fecha] = (map[h.fecha] || 0) + Number(h.horas || 0)
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([fecha, horas]) => ({ fecha, horas }))
+})
+const horasTotal = computed(() => horasPorDia.value.reduce((t, d) => t + d.horas, 0))
+const horasMax = computed(() => Math.max(...horasPorDia.value.map((d) => d.horas), 0))
+function barHeight(h) { return `${(h / (horasMax.value || 1)) * 100}%` }
+function diaLabel(f) { const [y, m, d] = String(f).split('-'); return `${d}/${m}` }
 
 /* Actividades */
 const showAct = ref(false)
@@ -240,6 +301,7 @@ watch(tab, (t) => {
   if (t === 'productos') inv.loadQuimicos()
   else if (t === 'dosificaciones') planta.loadDosificaciones()
   else if (t === 'mediciones') planta.loadMediciones()
+  else if (t === 'fuera') planta.loadFueraRango()
   else if (t === 'actividades') planta.loadActividades()
   else if (t === 'horas') planta.loadHoras()
 })
@@ -319,16 +381,16 @@ watch(tab, (t) => {
       </div>
     </div>
 
-    <!-- FUERA DE RANGO -->
+    <!-- FUERA DE RANGO (estado actual por parámetro) -->
     <div v-else-if="tab === 'fuera'">
-      <BaseAlert v-if="!planta.fueraRango.length" type="ok" class="mb-1">No hay mediciones fuera de rango. ✔</BaseAlert>
-      <DataTable v-else :columns="medCols" :rows="planta.fueraRango" :loading="planta.loading" empty-text="Sin mediciones fuera de rango.">
+      <p class="muted">Alerta solo si la <strong>última medición</strong> del parámetro está fuera de rango. Las mediciones pasadas se guardan como historial, pero al ajustar y registrar una medición en rango el parámetro deja de alertar.</p>
+      <BaseAlert v-if="!planta.fueraRango.length" type="ok" class="mb-1">Todos los parámetros están dentro de su rango según la última medición. ✔</BaseAlert>
+      <DataTable v-else :columns="fueraCols" :rows="planta.fueraRango" :loading="planta.loading" empty-text="Sin parámetros fuera de rango.">
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'parametro'">{{ paramMap[row.parametro_id]?.nombre || row.parametro_id }}</span>
-          <span v-else-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ paramMap[row.parametro_id]?.tipo_agua || '—' }}</span>
-          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
-          <span v-else-if="col.key === 'unidad'">{{ paramMap[row.parametro_id]?.unidad || '—' }}</span>
-          <span v-else-if="col.key === 'fuera_rango'"><span class="badge badge-bad">Fuera de rango</span></span>
+          <span v-if="col.key === 'parametro'"><strong>{{ row.parametro }}</strong></span>
+          <span v-else-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ row.tipo_agua }}</span>
+          <span v-else-if="col.key === 'rango'"><span class="badge badge-muted">{{ fmtRango(row.valor_min, row.valor_max) }} {{ row.unidad || '' }}</span></span>
+          <span v-else-if="col.key === 'valor'"><span class="badge badge-bad">{{ fmtNum(row.valor) }} {{ row.unidad || '' }}</span></span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -379,9 +441,21 @@ watch(tab, (t) => {
         <button class="btn btn-primary" @click="openNewDosis"><AppIcon name="plus" />Registrar dosificación</button>
         <button class="btn btn-ghost" @click="openNewProd"><AppIcon name="package" />Nuevo químico</button>
       </div>
+      <div v-if="resumenDosis.length" class="resumen-ubi">
+        <div class="resumen-card" v-for="r in resumenDosis" :key="r.id">
+          <span class="resumen-nombre"><AppIcon name="flask" :size="14" />{{ r.nombre }}</span>
+          <span class="resumen-dato">Stock: <strong>{{ fmtNum(r.stock) }} {{ r.unidad }}</strong>
+            <span v-if="r.minimo != null && r.stock <= Number(r.minimo)" class="badge badge-bad">Crítico</span>
+          </span>
+          <span class="resumen-dato">Última tasa: <strong>{{ r.tasa != null ? `${fmtNum(r.tasa)} ${r.unidadTasa}` : '—' }}</strong></span>
+          <span class="resumen-dato resumen-unidades" v-if="r.horasRestantes != null">≈ {{ fmtNum(r.horasRestantes) }} h de dosificación continua</span>
+          <span class="resumen-dato" v-else>Registra la tasa (ml/min) para estimar autonomía</span>
+        </div>
+      </div>
       <DataTable :columns="dosisCols" :rows="planta.dosificaciones" :loading="planta.loading" empty-text="Sin dosificaciones registradas.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'insumo'">{{ prodMap[row.elemento_id] || row.elemento_id }}</span>
+          <span v-else-if="col.key === 'tasa'">{{ row.tasa != null ? `${fmtNum(row.tasa)} ${row.unidad_tasa || 'ml/min'}` : '—' }}</span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -430,6 +504,21 @@ watch(tab, (t) => {
         <button class="btn btn-ghost" @click="limpiarHora">Limpiar</button>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewHora"><AppIcon name="plus" />Registrar horas</button></div>
+
+      <div v-if="horasPorDia.length" class="chart-wrap">
+        <div class="chart-head">
+          <strong>Horas trabajadas por día</strong>
+          <span class="muted">Total del periodo: {{ fmtNum(horasTotal) }} h</span>
+        </div>
+        <div class="chart">
+          <div class="chart-col" v-for="d in horasPorDia" :key="d.fecha" :title="`${d.fecha}: ${d.horas} h`">
+            <span class="chart-val">{{ fmtNum(d.horas) }}</span>
+            <div class="chart-bar" :style="{ height: barHeight(d.horas) }"></div>
+            <span class="chart-label">{{ diaLabel(d.fecha) }}</span>
+          </div>
+        </div>
+      </div>
+
       <DataTable :columns="horaCols" :rows="planta.horas" :loading="planta.loading" empty-text="Sin horas de servicio registradas." />
       <div class="report-bar">
         <label>Formato</label>
@@ -496,9 +585,12 @@ watch(tab, (t) => {
         <div class="field" style="grid-column:span 2"><label>Insumo *</label>
           <SearchableSelect v-model="dosisForm.elemento_id" :options="prodOptionsDisp" placeholder="Seleccione un químico/insumo…" />
         </div>
-        <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" v-model="dosisForm.cantidad" placeholder="0" /></div>
-        <p class="hint" v-if="dosisUnidad">Unidad del insumo: <strong>{{ dosisUnidad }}</strong> (se guarda con la dosificación).</p>
+        <div class="field"><label>Cantidad incorporada *</label><input class="input" type="number" step="0.01" v-model="dosisForm.cantidad" placeholder="Ej. 1" /></div>
+        <div class="field"><label>Tasa de dosificación</label><input class="input" type="number" step="0.1" v-model="dosisForm.tasa" placeholder="Ej. 5" /></div>
+        <div class="field"><label>Unidad de tasa</label><input class="input" v-model="dosisForm.unidad_tasa" placeholder="ml/min" /></div>
       </div>
+      <p class="hint" v-if="dosisUnidad">Unidad del insumo: <strong>{{ dosisUnidad }}</strong>.</p>
+      <p class="hint">La <strong>cantidad incorporada</strong> (ej. 1 L de cloro) <strong>descuenta del inventario</strong>. La <strong>tasa</strong> (ej. ml/min de la bomba) es solo informativa: sirve para estimar cuánto tiempo dura el químico puesto en el tanque.</p>
       <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones"></textarea></div>
       <template #footer>
         <button class="btn btn-ghost" @click="showDosis = false">Cancelar</button>
@@ -544,3 +636,28 @@ watch(tab, (t) => {
     </BaseModal>
   </div>
 </template>
+
+<style scoped>
+/* Gráfico de barras de horas de servicio (sin dependencias externas) */
+.chart-wrap {
+  background: #fff; border: 1px solid var(--acr-borde); border-radius: 10px;
+  padding: 1rem; margin-bottom: 1rem;
+}
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .75rem; }
+.chart {
+  display: flex; align-items: stretch; gap: 6px;
+  height: 200px; overflow-x: auto; padding-bottom: .25rem;
+}
+.chart-col {
+  flex: 1; min-width: 34px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 2px;
+}
+.chart-val { font-size: .68rem; color: var(--acr-texto-suave); }
+.chart-bar {
+  width: 100%; max-width: 42px;
+  background: var(--acr-azul); border-radius: 5px 5px 0 0;
+  min-height: 2px; transition: height .2s;
+}
+.chart-label { font-size: .68rem; color: var(--acr-texto-suave); white-space: nowrap; }
+</style>

@@ -29,7 +29,9 @@ export const usePlantaStore = defineStore('planta', {
     async createMedicion(p) { const { data } = await client.post('/planta/mediciones', p); await this.loadMediciones(); return data },
 
     async loadFueraRango() {
-      const { data } = await client.get('/planta/mediciones/fuera-rango')
+      // Estado ACTUAL: parámetros cuya ÚLTIMA medición está fuera de rango
+      // (no lista mediciones pasadas; ya ajustadas no siguen alertando).
+      const { data } = await client.get('/planta/parametros-fuera-rango')
       this.fueraRango = data
     },
 

@@ -300,7 +300,9 @@ Table mediciones {
 Table dosificaciones {
   id                serial [pk]
   elemento_id       integer [not null, ref: > elementos_inventario.id] // RF-43 (salida de insumo/químico)
-  cantidad          numeric(12,2) [not null] // RF-43
+  cantidad          numeric(12,2) [not null] // químico incorporado (ej. 1 L de cloro): esto descuenta inventario
+  tasa              numeric(12,4) // tasa/caudal de la bomba (ej. ml/min): informativa, NO descuenta
+  unidad_tasa       varchar(20) [default: 'ml/min']
   fecha             date [not null]
   hora              time
   responsable_id    integer [ref: > usuarios.id]

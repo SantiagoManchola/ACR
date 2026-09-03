@@ -244,6 +244,8 @@ CREATE TABLE IF NOT EXISTS dosificaciones (
   elemento_id   INT NOT NULL,
   cantidad      DECIMAL(12,2) NOT NULL,
   unidad        VARCHAR(20),
+  tasa          DECIMAL(12,4),
+  unidad_tasa   VARCHAR(20) DEFAULT 'ml/min',
   fecha         DATE NOT NULL,
   hora          TIME,
   responsable_id INT,

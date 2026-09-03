@@ -197,8 +197,9 @@ def reporte_planta(
         datos = [{"id": d.id, "fecha": d.fecha, "hora": d.hora,
                   "insumo": elem_map.get(d.elemento_id, d.elemento_id),
                   "cantidad": d.cantidad, "unidad": d.unidad or "",
+                  "tasa": d.tasa, "unidad_tasa": d.unidad_tasa or "",
                   "observaciones": d.observaciones or ""} for d in filas]
-        columnas = ["id", "fecha", "hora", "insumo", "cantidad", "unidad", "observaciones"]
+        columnas = ["id", "fecha", "hora", "insumo", "cantidad", "unidad", "tasa", "unidad_tasa", "observaciones"]
         return _responder(datos, columnas, formato, "reporte_dosificaciones", "Dosificaciones ACR")
 
     if tipo == "horas":

@@ -320,8 +320,14 @@ class Dosificacion(Base):
 
     id = Column(Integer, primary_key=True)
     elemento_id = Column(Integer, ForeignKey("elementos_inventario.id", ondelete="RESTRICT"), nullable=False)
+    # Cantidad de químico INCORPORADA (ej. 1 L de cloro): esto descuenta inventario.
     cantidad = Column(Numeric(12, 2), nullable=False)
     unidad = Column(String(20))
+    # Tasa/caudal con la que está dosificando la bomba (ej. ml/min): solo
+    # informativa, NO descuenta inventario. Sirve para estimar cuánto tiempo
+    # queda de químico con el stock puesto en el tanque.
+    tasa = Column(Numeric(12, 4))
+    unidad_tasa = Column(String(20), server_default="ml/min")
     fecha = Column(Date, nullable=False)
     hora = Column(Time)
     responsable_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))

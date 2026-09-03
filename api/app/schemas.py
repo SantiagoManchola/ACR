@@ -366,7 +366,9 @@ class MedicionOut(_ORM):
 
 class DosificacionCreate(BaseModel):
     elemento_id: int
-    cantidad: Decimal = Field(gt=0)
+    cantidad: Decimal = Field(gt=0)  # químico incorporado (descuenta inventario)
+    tasa: Optional[Decimal] = None  # tasa/caudal de la bomba (informativa, ej. ml/min)
+    unidad_tasa: Optional[str] = None
     fecha: Optional[date] = None
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
@@ -378,10 +380,28 @@ class DosificacionOut(_ORM):
     elemento_id: int
     cantidad: Decimal
     unidad: Optional[str] = None
+    tasa: Optional[Decimal] = None
+    unidad_tasa: Optional[str] = None
     fecha: date
     hora: Optional[time] = None
     responsable_id: Optional[int] = None
     observaciones: Optional[str] = None
+
+
+class ParametroFueraRangoOut(BaseModel):
+    """Parámetro cuya ÚLTIMA medición está fuera de rango (estado actual)."""
+
+    parametro_id: int
+    parametro: str
+    tipo_agua: str
+    unidad: Optional[str] = None
+    valor_min: Optional[Decimal] = None
+    valor_max: Optional[Decimal] = None
+    valor: Decimal  # última medición registrada
+    fecha: date
+    hora: Optional[time] = None
+    medicion_id: int
+    accion_correctiva: Optional[str] = None
 
 
 class ActividadCreate(BaseModel):
