@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useUsuariosStore } from '../stores/usuarios'
 import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
 import BaseModal from '../components/BaseModal.vue'
 import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PasswordInput from '../components/PasswordInput.vue'
 import { apiError } from '../api/http'
@@ -36,6 +37,7 @@ async function doToggle() {
 }
 
 const rolMap = (id) => usu.roles.find((r) => r.id === id)?.nombre || id
+const rolOptions = computed(() => usu.roles.map((r) => ({ value: r.id, label: r.nombre })))
 
 /* Usuarios */
 const showUser = ref(false)
@@ -131,10 +133,7 @@ onMounted(async () => {
         <div class="field"><label>Identificación</label><input class="input" v-model="userForm.identificacion" /></div>
         <div class="field"><label>Usuario (login) *</label><input class="input" v-model="userForm.username" autocomplete="off" /></div>
         <div class="field"><label>Rol *</label>
-          <select class="select" v-model="userForm.rol_id">
-            <option :value="null">Seleccione…</option>
-            <option v-for="r in usu.roles" :key="r.id" :value="r.id">{{ r.nombre }}</option>
-          </select>
+          <SearchableSelect v-model="userForm.rol_id" :options="rolOptions" placeholder="Seleccione…" clearable />
         </div>
         <div class="field"><label>{{ editingUser ? 'Nueva contraseña (opcional)' : 'Contraseña *' }}</label>
           <PasswordInput v-model="userForm.password" :required="!editingUser" :placeholder="editingUser ? 'Dejar en blanco para no cambiar' : ''" autocomplete="new-password" />

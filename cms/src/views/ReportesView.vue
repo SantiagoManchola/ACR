@@ -2,17 +2,19 @@
 import { ref, computed } from 'vue'
 import client from '../api/http'
 import { useAuthStore } from '../stores/auth'
+import { hoyColombia, formatoOptions } from '../utils/format'
 import DataTable from '../components/DataTable.vue'
 import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
 
 const auth = useAuthStore()
 const modulo = ref('inventario')
 const formato = ref('csv')
 const sector = ref('')
 const fueraRango = ref('')
-const fechaInicio = ref('')
-const fechaFin = ref('')
+const fechaInicio = ref(hoyColombia())
+const fechaFin = ref(hoyColombia())
 const preview = ref([])
 const previewCols = ref([])
 const loading = ref(false)
@@ -23,6 +25,11 @@ const modulos = [
   { id: 'inventario', label: 'Inventario', cols: ['id', 'nombre', 'categoria_id', 'ubicacion', 'cantidad', 'unidad', 'minimo', 'estado'] },
   { id: 'consumo', label: 'Consumo micromedidores', cols: ['lectura_id', 'fecha', 'sector', 'suscriptor', 'micromedidor_id', 'lectura', 'consumo', 'promedio_usado', 'irregular'] },
   { id: 'planta', label: 'Planta de tratamiento', cols: ['medicion_id', 'fecha', 'parametro', 'valor', 'fuera_rango', 'accion_correctiva'] },
+]
+const moduloOptions = computed(() => modulos.map((m) => ({ value: m.id, label: m.label })))
+const fueraRangoOptions = [
+  { value: 'true', label: 'Solo fuera de rango' },
+  { value: 'false', label: 'Solo en rango' },
 ]
 
 function buildParams() {
@@ -85,9 +92,7 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
       <div class="toolbar">
         <div class="field" style="margin:0">
           <label>Módulo</label>
-          <select class="select" v-model="modulo" @change="preview = []">
-            <option v-for="m in modulos" :key="m.id" :value="m.id">{{ m.label }}</option>
-          </select>
+          <SearchableSelect v-model="modulo" :options="moduloOptions" placeholder="Módulo" @update:model-value="preview = []" />
         </div>
         <div class="field" style="margin:0" v-if="modulo === 'consumo'">
           <label>Sector / barrio</label>
@@ -95,11 +100,7 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
         </div>
         <div class="field" style="margin:0" v-if="modulo === 'planta'">
           <label>Estado</label>
-          <select class="select" v-model="fueraRango">
-            <option value="">Todos</option>
-            <option value="true">Solo fuera de rango</option>
-            <option value="false">Solo en rango</option>
-          </select>
+          <SearchableSelect v-model="fueraRango" :options="fueraRangoOptions" placeholder="Todos" clearable />
         </div>
         <div class="field" style="margin:0">
           <label>Desde</label>
@@ -115,11 +116,7 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
 
       <div class="toolbar">
         <label class="muted" style="align-self:center">Exportar:</label>
-        <select class="select" v-model="formato" style="width:auto">
-          <option value="csv">CSV</option>
-          <option value="xlsx">Excel</option>
-          <option value="pdf">PDF</option>
-        </select>
+        <SearchableSelect v-model="formato" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-primary" @click="exportar" :disabled="loading"><AppIcon name="download" />Descargar</button>
       </div>
 

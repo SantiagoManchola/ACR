@@ -1,12 +1,13 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-// Acceso por rol (regla de negocio 12: planta restringida a operario/admin/administrativo)
+// Acceso por rol (regla de negocio 12): planta restringida a operario/admin
+// (el administrativo NO tiene acceso al módulo de planta).
 export const MODULOS = {
   dashboard: { label: 'Inicio', icon: 'home', roles: ['admin', 'administrativo', 'operario', 'fontanero'] },
   inventario: { label: 'Inventario', icon: 'inventory', roles: ['admin', 'administrativo'] },
   micromedidores: { label: 'Micromedidores', icon: 'gauge', roles: ['admin', 'administrativo', 'fontanero'] },
-  planta: { label: 'Planta de tratamiento', icon: 'drop', roles: ['admin', 'operario', 'administrativo'] },
+  planta: { label: 'Planta de tratamiento', icon: 'drop', roles: ['admin', 'operario'] },
   usuarios: { label: 'Usuarios y roles', icon: 'users', roles: ['admin'] },
 }
 

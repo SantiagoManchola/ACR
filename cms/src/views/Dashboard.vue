@@ -21,7 +21,7 @@ async function load() {
   if (['admin', 'administrativo'].includes(rol.value)) {
     tareas.push(inv.loadElementos(), inv.loadAlertas(), mm.loadSuscriptores(), mm.loadMicromedidores())
   }
-  if (['admin', 'operario', 'administrativo'].includes(rol.value)) {
+  if (['admin', 'operario'].includes(rol.value)) {
     tareas.push(planta.loadFueraRango())
   }
   await Promise.allSettled(tareas)
@@ -36,7 +36,7 @@ function buildKpis() {
     out.push({ label: 'Suscriptores', value: mm.suscriptores.length, to: '/micromedidores', icon: 'users' })
     out.push({ label: 'Micromedidores', value: mm.micromedidores.length, to: '/micromedidores', icon: 'gauge' })
   }
-  if (['admin', 'operario', 'administrativo'].includes(rol.value)) {
+  if (['admin', 'operario'].includes(rol.value)) {
     out.push({ label: 'Parámetros fuera de rango', value: planta.fueraRango.length, to: '/planta', icon: 'alert', tone: planta.fueraRango.length ? 'warn' : 'ok' })
   }
   kpis.value = out

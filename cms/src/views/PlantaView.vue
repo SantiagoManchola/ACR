@@ -3,19 +3,25 @@ import { onMounted, ref, computed, watch } from 'vue'
 import { usePlantaStore } from '../stores/planta'
 import { useInventarioStore } from '../stores/inventario'
 import { useUsuariosStore } from '../stores/usuarios'
+import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
 import BaseModal from '../components/BaseModal.vue'
 import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { apiError, descargarReporte } from '../api/http'
-import { fmtNum, fmtRango } from '../utils/format'
+import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
 
 const planta = usePlantaStore()
 const inv = useInventarioStore()
 const usu = useUsuariosStore()
+const auth = useAuthStore()
 const tab = ref('parametros')
 const saving = ref(false)
+// El operario NO puede hacer CRUD de parámetros ni registrar químicos:
+// solo consulta químicos y registra mediciones/dosificaciones/actividades/horas.
+const esOperario = computed(() => auth.rol === 'operario')
+const puedeGestionarUsuarios = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 
 const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => [p.id, p])))
 const userMap = computed(() => Object.fromEntries(usu.usuarios.map((u) => [u.id, u.nombre])))
@@ -49,29 +55,40 @@ async function generarReporte(tipo, filtros = {}) {
   catch (e) { alert(apiError(e)) }
 }
 
-/* Filtros por pestaña */
-const medFiltro = ref({ parametro_id: '', fuera_rango: '', fecha_inicio: '', fecha_fin: '' })
+/* Filtros por pestaña (fechas por defecto: hoy en Colombia) */
+const medFiltro = ref({ parametro_id: '', fuera_rango: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarMed() { planta.loadMediciones(buildFiltros(medFiltro.value)) }
-function limpiarMed() { medFiltro.value = { parametro_id: '', fuera_rango: '', fecha_inicio: '', fecha_fin: '' }; planta.loadMediciones() }
+function limpiarMed() { medFiltro.value = { parametro_id: '', fuera_rango: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarMed() }
 
-const actFiltro = ref({ tipo: '', fecha_inicio: '', fecha_fin: '' })
+const actFiltro = ref({ tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarAct() { planta.loadActividades(buildFiltros(actFiltro.value)) }
-function limpiarAct() { actFiltro.value = { tipo: '', fecha_inicio: '', fecha_fin: '' }; planta.loadActividades() }
+function limpiarAct() { actFiltro.value = { tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarAct() }
 
-const dosisFiltro = ref({ elemento_id: '', fecha_inicio: '', fecha_fin: '' })
+const dosisFiltro = ref({ elemento_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarDosis() { planta.loadDosificaciones(buildFiltros(dosisFiltro.value)) }
-function limpiarDosis() { dosisFiltro.value = { elemento_id: '', fecha_inicio: '', fecha_fin: '' }; planta.loadDosificaciones() }
+function limpiarDosis() { dosisFiltro.value = { elemento_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarDosis() }
 
-const horaFiltro = ref({ fecha_inicio: '', fecha_fin: '' })
+const horaFiltro = ref({ fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarHora() { planta.loadHoras(buildFiltros(horaFiltro.value)) }
-function limpiarHora() { horaFiltro.value = { fecha_inicio: '', fecha_fin: '' }; planta.loadHoras() }
+function limpiarHora() { horaFiltro.value = { fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarHora() }
+
+const fueraRangoOptions = [
+  { value: 'true', label: 'Sí' },
+  { value: 'false', label: 'No' },
+]
+const tipoAguaOptions = [
+  { value: 'cruda', label: 'Cruda' },
+  { value: 'tratada', label: 'Tratada' },
+]
 
 function refreshPlanta() {
-  return Promise.all([
+  const tareas = [
     planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadMediciones(),
     planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(),
-    planta.loadHoras(), usu.loadUsuarios(),
-  ])
+    planta.loadHoras(),
+  ]
+  if (puedeGestionarUsuarios.value) tareas.push(usu.loadUsuarios())
+  return Promise.all(tareas)
 }
 
 /* Parámetros */
@@ -290,6 +307,7 @@ const actCols = [
   { key: 'evidencia', label: 'Evidencia' },
 ]
 const actTipos = ['Limpieza', 'Desinfección', 'Tanques', 'Bocatoma', 'Mantenimiento']
+const actTiposOptions = computed(() => actTipos.map((t) => ({ value: t, label: t })))
 function openNewAct() { actForm.value = emptyAct(); actError.value = ''; showAct.value = true }
 async function saveAct() {
   actError.value = ''
@@ -324,18 +342,24 @@ async function saveHora() {
 }
 
 onMounted(async () => {
-  await Promise.all([planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadMediciones(), planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(), planta.loadHoras(), usu.loadUsuarios()])
+  const tareas = [planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadFueraRango()]
+  if (puedeGestionarUsuarios.value) tareas.push(usu.loadUsuarios())
+  await Promise.all(tareas)
+  filtrarMed()
+  filtrarAct()
+  filtrarDosis()
+  filtrarHora()
 })
 
 /* Al entrar a cada pestaña se refrescan sus datos para no mostrar información desactualizada
    (punto 5: los químicos se actualizan al registrar dosificaciones / al abrir la pestaña). */
 watch(tab, (t) => {
   if (t === 'productos') inv.loadQuimicos()
-  else if (t === 'dosificaciones') planta.loadDosificaciones()
-  else if (t === 'mediciones') planta.loadMediciones()
+  else if (t === 'dosificaciones') filtrarDosis()
+  else if (t === 'mediciones') filtrarMed()
   else if (t === 'fuera') planta.loadFueraRango()
-  else if (t === 'actividades') planta.loadActividades()
-  else if (t === 'horas') planta.loadHoras()
+  else if (t === 'actividades') filtrarAct()
+  else if (t === 'horas') filtrarHora()
 })
 </script>
 
@@ -365,7 +389,7 @@ watch(tab, (t) => {
 
     <!-- PARÁMETROS -->
     <div v-if="tab === 'parametros'">
-      <div class="toolbar"><button class="btn btn-primary" @click="openNewParam"><AppIcon name="plus" />Nuevo parámetro</button></div>
+      <div class="toolbar"><button v-if="!esOperario" class="btn btn-primary" @click="openNewParam"><AppIcon name="plus" />Nuevo parámetro</button></div>
       <DataTable :columns="paramCols" :rows="planta.parametros" :loading="planta.loading" empty-text="Sin parámetros configurados.">
         <template #cell="{ row, col }">
           <span v-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ row.tipo_agua }}</span>
@@ -375,7 +399,7 @@ watch(tab, (t) => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditParam(row)"><AppIcon name="edit" :size="16" /></button>
+          <button v-if="!esOperario" class="btn btn-ghost btn-sm" @click="openEditParam(row)"><AppIcon name="edit" :size="16" /></button>
         </template>
       </DataTable>
     </div>
@@ -384,10 +408,10 @@ watch(tab, (t) => {
     <div v-else-if="tab === 'mediciones'">
       <div class="filter-bar">
         <div class="field"><label>Parámetro</label>
-          <select class="select" v-model="medFiltro.parametro_id"><option value="">Todos</option><option v-for="o in paramOptions" :key="o.value" :value="o.value">{{ o.label }}</option></select>
+          <SearchableSelect v-model="medFiltro.parametro_id" :options="paramOptions" placeholder="Todos" clearable />
         </div>
         <div class="field"><label>Fuera de rango</label>
-          <select class="select" v-model="medFiltro.fuera_rango"><option value="">Todos</option><option value="true">Sí</option><option value="false">No</option></select>
+          <SearchableSelect v-model="medFiltro.fuera_rango" :options="fueraRangoOptions" placeholder="Todos" clearable />
         </div>
         <div class="field"><label>Desde</label><input class="input" type="date" v-model="medFiltro.fecha_inicio" /></div>
         <div class="field"><label>Hasta</label><input class="input" type="date" v-model="medFiltro.fecha_fin" /></div>
@@ -408,7 +432,7 @@ watch(tab, (t) => {
       </DataTable>
       <div class="report-bar">
         <label>Formato</label>
-        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('mediciones', medFiltro)">Generar reporte</button>
       </div>
     </div>
@@ -436,7 +460,7 @@ watch(tab, (t) => {
       </BaseAlert>
       <p class="muted" v-else>Mostrando únicamente la disponibilidad de químicos en <strong>{{ plantaUbi.nombre }}</strong>.</p>
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewProd" :disabled="!plantaUbi"><AppIcon name="plus" />Nuevo químico</button>
+        <button v-if="!esOperario" class="btn btn-primary" @click="openNewProd" :disabled="!plantaUbi"><AppIcon name="plus" />Nuevo químico</button>
         <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
       </div>
       <DataTable :columns="prodCols" :rows="quimicosPlanta" :loading="inv.loading" empty-text="Sin químicos registrados en la planta.">
@@ -452,12 +476,12 @@ watch(tab, (t) => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditProd(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button v-if="!esOperario" class="btn btn-ghost btn-sm" @click="openEditProd(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
         </template>
       </DataTable>
       <div class="report-bar">
         <label>Formato</label>
-        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('quimicos', {})">Generar reporte</button>
       </div>
     </div>
@@ -466,7 +490,7 @@ watch(tab, (t) => {
     <div v-else-if="tab === 'dosificaciones'">
       <div class="filter-bar">
         <div class="field"><label>Insumo</label>
-          <select class="select" v-model="dosisFiltro.elemento_id"><option value="">Todos</option><option v-for="p in inv.quimicos" :key="p.id" :value="p.id">{{ p.nombre }}</option></select>
+          <SearchableSelect v-model="dosisFiltro.elemento_id" :options="prodOptionsDisp" placeholder="Todos" clearable />
         </div>
         <div class="field"><label>Desde</label><input class="input" type="date" v-model="dosisFiltro.fecha_inicio" /></div>
         <div class="field"><label>Hasta</label><input class="input" type="date" v-model="dosisFiltro.fecha_fin" /></div>
@@ -475,7 +499,7 @@ watch(tab, (t) => {
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewDosis"><AppIcon name="plus" />Registrar dosificación</button>
-        <button class="btn btn-ghost" @click="openNewProd"><AppIcon name="package" />Nuevo químico</button>
+        <button v-if="!esOperario" class="btn btn-ghost" @click="openNewProd"><AppIcon name="package" />Nuevo químico</button>
       </div>
       <div v-if="resumenDosis.length" class="resumen-ubi">
         <div class="resumen-card" v-for="r in resumenDosis" :key="r.id">
@@ -498,7 +522,7 @@ watch(tab, (t) => {
       </DataTable>
       <div class="report-bar">
         <label>Formato</label>
-        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('dosificaciones', dosisFiltro)">Generar reporte</button>
       </div>
     </div>
@@ -507,7 +531,7 @@ watch(tab, (t) => {
     <div v-else-if="tab === 'actividades'">
       <div class="filter-bar">
         <div class="field"><label>Tipo</label>
-          <select class="select" v-model="actFiltro.tipo"><option value="">Todos</option><option v-for="t in actTipos" :key="t" :value="t">{{ t }}</option></select>
+          <SearchableSelect v-model="actFiltro.tipo" :options="actTiposOptions" placeholder="Todos" clearable />
         </div>
         <div class="field"><label>Desde</label><input class="input" type="date" v-model="actFiltro.fecha_inicio" /></div>
         <div class="field"><label>Hasta</label><input class="input" type="date" v-model="actFiltro.fecha_fin" /></div>
@@ -526,7 +550,7 @@ watch(tab, (t) => {
       </DataTable>
       <div class="report-bar">
         <label>Formato</label>
-        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('actividades', actFiltro)">Generar reporte</button>
       </div>
     </div>
@@ -558,7 +582,7 @@ watch(tab, (t) => {
       <DataTable :columns="horaCols" :rows="planta.horas" :loading="planta.loading" empty-text="Sin horas de servicio registradas." />
       <div class="report-bar">
         <label>Formato</label>
-        <select class="select" v-model="formatoReporte"><option value="csv">CSV</option><option value="xlsx">XLSX</option><option value="pdf">PDF</option></select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('horas', horaFiltro)">Generar reporte</button>
       </div>
     </div>
@@ -569,7 +593,7 @@ watch(tab, (t) => {
       <div class="form-row">
         <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="paramForm.nombre" placeholder="Ej. pH, cloro residual, turbiedad" /></div>
         <div class="field"><label>Tipo de agua</label>
-          <select class="select" v-model="paramForm.tipo_agua"><option value="cruda">Cruda</option><option value="tratada">Tratada</option></select>
+          <SearchableSelect v-model="paramForm.tipo_agua" :options="tipoAguaOptions" placeholder="Tipo de agua" />
         </div>
         <div class="field"><label>Unidad</label><input class="input" v-model="paramForm.unidad" placeholder="Ej. mg/L" /></div>
         <div class="field"><label>Valor mínimo</label><input class="input" type="number" step="0.01" v-model="paramForm.valor_min" placeholder="0" /></div>
@@ -640,10 +664,7 @@ watch(tab, (t) => {
       <BaseAlert v-if="actError" type="bad" class="mb-1">{{ actError }}</BaseAlert>
       <div class="form-row">
         <div class="field" style="grid-column:span 2"><label>Tipo de actividad *</label>
-          <select class="select" v-model="actForm.tipo">
-            <option value="">Seleccione…</option>
-            <option v-for="t in actTipos" :key="t" :value="t">{{ t }}</option>
-          </select>
+          <SearchableSelect v-model="actForm.tipo" :options="actTiposOptions" placeholder="Seleccione…" clearable />
         </div>
         <div class="field" style="grid-column:span 2"><label>Responsable</label>
           <SearchableSelect v-model="actForm.responsable_id" :options="userOptions" placeholder="Usuario responsable" clearable />

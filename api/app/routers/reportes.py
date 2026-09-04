@@ -18,7 +18,13 @@ from ..services import planta as svc_planta, micromedidores as svc_mm
 from ..services.export import a_csv, a_xlsx, a_pdf
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
-_LECTORES = ["admin", "administrativo", "operario"]
+# Roles por módulo (coherentes con el acceso a cada vista del CMS):
+# - inventario: admin + administrativo
+# - micromedidores: admin + administrativo + fontanero
+# - planta: admin + operario (el administrativo NO tiene acceso a planta)
+_LECTORES_INV = ["admin", "administrativo", "operario"]
+_LECTORES_MM = ["admin", "administrativo", "fontanero"]
+_LECTORES_PLANTA = ["admin", "operario"]
 
 
 def _responder(filas, columnas, formato: str, nombre: str, titulo: str):
@@ -56,7 +62,7 @@ def reporte_inventario(
     estado: str | None = None,
     solo_insumos: bool = Query(default=False),
     formato: str = Query(default="csv"),
-    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES_INV)),
 ):
     cats = {c.id: c for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
 
@@ -120,7 +126,7 @@ def reporte_micromedidores(
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
     formato: str = Query(default="csv"),
-    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES_MM)),
 ):
     if tipo == "suscriptores":
         filas = svc_mm.filtrar_suscriptores(
@@ -162,7 +168,7 @@ def reporte_planta(
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
     formato: str = Query(default="csv"),
-    db=Depends(get_db), _=Depends(require_role(_LECTORES)),
+    db=Depends(get_db), _=Depends(require_role(_LECTORES_PLANTA)),
 ):
     if tipo == "quimicos":
         # Químicos = elementos de inventario de categoría tipo 'insumo' y nombre "Químicos".

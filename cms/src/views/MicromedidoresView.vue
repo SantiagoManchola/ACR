@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref, computed, watch } from 'vue'
 import { useMicromedidoresStore } from '../stores/micromedidores'
+import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
 import BaseModal from '../components/BaseModal.vue'
 import BaseAlert from '../components/BaseAlert.vue'
@@ -8,10 +9,13 @@ import AppIcon from '../components/AppIcon.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import { apiError, descargarReporte } from '../api/http'
-import { fmtNum } from '../utils/format'
+import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 
 const mm = useMicromedidoresStore()
+const auth = useAuthStore()
 const tab = ref('suscriptores')
+// El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
+const esFontanero = computed(() => auth.rol === 'fontanero')
 
 const susMap = computed(() => Object.fromEntries(mm.suscriptores.map((s) => [s.id, s.nombre])))
 const susOptions = computed(() => mm.suscriptores.map((s) => ({ value: s.id, label: s.nombre })))
@@ -59,11 +63,11 @@ function refreshAll() { return Promise.all([mm.loadSuscriptores(), mm.loadMicrom
 /* ---------------- Filtros ---------------- */
 const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '' })
 const filtrosMm = ref({ serial: '', suscriptor_id: '', sector: '', condicion: '' })
-const filtrosLec = ref({ sector: '', fecha_inicio: '', fecha_fin: '' })
+const filtrosLec = ref({ sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 
 function limpiarFiltrosSus() { filtrosSus.value = { nombre: '', identificacion: '', sector: '', tipo_usuario: '' }; mm.loadSuscriptores() }
 function limpiarFiltrosMm() { filtrosMm.value = { serial: '', suscriptor_id: '', sector: '', condicion: '' }; mm.loadMicromedidores() }
-function limpiarFiltrosLec() { filtrosLec.value = { sector: '', fecha_inicio: '', fecha_fin: '' }; mm.loadLecturas() }
+function limpiarFiltrosLec() { filtrosLec.value = { sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; buscarLec() }
 
 function soloNoVacios(obj) {
   const out = {}
@@ -221,6 +225,8 @@ const aniosDisponibles = computed(() => {
   const anios = new Set((mm.historial?.lecturas || []).map((l) => Number(String(l.fecha).slice(0, 4))))
   return [...anios].sort((a, b) => b - a)
 })
+const aniosOptions = computed(() => aniosDisponibles.value.map((a) => ({ value: a, label: String(a) })))
+const mesesOptions = computed(() => MESES.map((m) => ({ value: m.v, label: m.label })))
 const printRows = computed(() => {
   const { anio, mes_inicio, mes_fin } = printForm.value
   return (mm.historial?.lecturas || [])
@@ -314,7 +320,7 @@ async function saveLec() {
 onMounted(async () => {
   await mm.loadSuscriptores()
   await mm.loadMicromedidores()
-  await mm.loadLecturas()
+  buscarLec()
   await mm.loadSectores()
 })
 </script>
@@ -348,7 +354,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewSus"><AppIcon name="plus" />Nuevo suscriptor</button>
+        <button v-if="!esFontanero" class="btn btn-primary" @click="openNewSus"><AppIcon name="plus" />Nuevo suscriptor</button>
         <button class="btn btn-ghost" @click="refreshAll"><AppIcon name="refresh" />Refrescar</button>
       </div>
       <DataTable :columns="susCols" :rows="mm.suscriptores" :loading="mm.loading" empty-text="Sin suscriptores.">
@@ -358,19 +364,15 @@ onMounted(async () => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditSus(row)"><AppIcon name="edit" :size="16" /></button>
-          <button class="btn btn-ghost btn-sm" @click="openDetailSus(row)"><AppIcon name="eye" :size="16" /></button>
-          <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delSus(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-else class="btn btn-ghost btn-sm" @click="reactivarSus(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-if="!esFontanero" class="btn btn-ghost btn-sm" @click="openEditSus(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button class="btn btn-ghost btn-sm" @click="openDetailSus(row)" title="Detalle"><AppIcon name="eye" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delSus(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" @click="reactivarSus(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de suscriptores:</span>
-        <select class="select" v-model="formatoReporte">
-          <option value="csv">CSV</option>
-          <option value="xlsx">XLSX</option>
-          <option value="pdf">PDF</option>
-        </select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('suscriptores')"><AppIcon name="download" />Generar reporte</button>
       </div>
     </div>
@@ -394,7 +396,7 @@ onMounted(async () => {
         </div>
       </div>
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewMm"><AppIcon name="plus" />Nuevo micromedidor</button>
+        <button v-if="!esFontanero" class="btn btn-primary" @click="openNewMm"><AppIcon name="plus" />Nuevo micromedidor</button>
         <button class="btn btn-ghost" @click="refreshAll"><AppIcon name="refresh" />Refrescar</button>
       </div>
       <DataTable :columns="mmCols" :rows="mm.micromedidores" :loading="mm.loading" empty-text="Sin micromedidores.">
@@ -405,19 +407,15 @@ onMounted(async () => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditMm(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
-          <button class="btn btn-ghost btn-sm" @click="openDetailMm(row)" title="Ver detalle"><AppIcon name="eye" :size="16" /></button>
-          <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delMm(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-else class="btn btn-ghost btn-sm" @click="reactivarMm(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-if="!esFontanero" class="btn btn-ghost btn-sm" @click="openEditMm(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button class="btn btn-ghost btn-sm" @click="openDetailMm(row)" title="Detalle"><AppIcon name="eye" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delMm(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" @click="reactivarMm(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de micromedidores:</span>
-        <select class="select" v-model="formatoReporte">
-          <option value="csv">CSV</option>
-          <option value="xlsx">XLSX</option>
-          <option value="pdf">PDF</option>
-        </select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('micromedidores')"><AppIcon name="download" />Generar reporte</button>
       </div>
     </div>
@@ -447,13 +445,9 @@ onMounted(async () => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de lecturas:</span>
-        <select class="select" v-model="formatoReporte">
-          <option value="csv">CSV</option>
-          <option value="xlsx">XLSX</option>
-          <option value="pdf">PDF</option>
-        </select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" @click="generarReporte('lecturas')"><AppIcon name="download" />Generar reporte</button>
       </div>
     </div>
@@ -465,11 +459,7 @@ onMounted(async () => {
         <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="susForm.nombre" /></div>
         <div class="field"><label>Identificación</label><input class="input" v-model="susForm.identificacion" /></div>
         <div class="field"><label>Tipo de usuario</label>
-          <select class="select" v-model="susForm.tipo_usuario">
-            <option value="residencial">Residencial</option>
-            <option value="comercial">Comercial</option>
-            <option value="otro">Otro</option>
-          </select>
+          <SearchableSelect v-model="susForm.tipo_usuario" :options="tipoUsuarioOptions" placeholder="Tipo de usuario" />
         </div>
         <div class="field"><label>Sector / barrio</label>
           <SearchableSelect v-model="susForm.sector" :options="sectorOptions" placeholder="Seleccione o escriba un sector" clearable />
@@ -497,11 +487,7 @@ onMounted(async () => {
         <div class="field" style="grid-column:span 2"><label>Dirección</label><input class="input" v-model="mmForm.direccion" /></div>
         <div class="field"><label>Fecha de instalación</label><input class="input" type="date" v-model="mmForm.fecha_instalacion" /></div>
         <div class="field"><label>Condición</label>
-          <select class="select" v-model="mmForm.condicion">
-            <option value="bueno">Bueno (normal)</option>
-            <option value="defectuoso">Defectuoso (se marca)</option>
-            <option value="frenado">Frenado (automático)</option>
-          </select>
+          <SearchableSelect v-model="mmForm.condicion" :options="condicionOptions" placeholder="Condición" />
           <p class="hint">«Frenado» se detecta solo con 3 lecturas mensuales idénticas seguidas.</p>
         </div>
       </div>
@@ -613,21 +599,13 @@ onMounted(async () => {
     <BaseModal v-model="showPrint" title="Imprimir mediciones">
       <div class="form-row" style="margin-bottom:1rem">
         <div class="field"><label>Año *</label>
-          <select class="select" v-model="printForm.anio">
-            <option v-for="a in aniosDisponibles" :key="a" :value="a">{{ a }}</option>
-          </select>
+          <SearchableSelect v-model="printForm.anio" :options="aniosOptions" placeholder="Año" />
         </div>
         <div class="field"><label>Mes inicio</label>
-          <select class="select" v-model="printForm.mes_inicio">
-            <option value="">Enero</option>
-            <option v-for="m in MESES" :key="m.v" :value="m.v">{{ m.label }}</option>
-          </select>
+          <SearchableSelect v-model="printForm.mes_inicio" :options="mesesOptions" placeholder="Enero" clearable />
         </div>
         <div class="field"><label>Mes fin</label>
-          <select class="select" v-model="printForm.mes_fin">
-            <option value="">Diciembre</option>
-            <option v-for="m in MESES" :key="m.v" :value="m.v">{{ m.label }}</option>
-          </select>
+          <SearchableSelect v-model="printForm.mes_fin" :options="mesesOptions" placeholder="Diciembre" clearable />
         </div>
       </div>
       <p class="muted" style="margin:0 0 .75rem">{{ printRows.length }} lectura(s) en el periodo {{ printPeriodo }} · Consumo total: {{ fmtNum(printTotal) }} m³</p>

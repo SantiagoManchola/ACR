@@ -1,10 +1,22 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { MODULOS } from '../router'
 import AppIcon from './AppIcon.vue'
 
 const auth = useAuthStore()
 const open = ref(false)
+
+// Navegación según el rol (fuente única: MODULOS del router).
+// Así, p. ej., el rol administrativo (oficina) NO ve la pestaña de Planta.
+const linksOperacion = [
+  { to: '/dashboard', key: 'dashboard' },
+  { to: '/inventario', key: 'inventario' },
+  { to: '/micromedidores', key: 'micromedidores' },
+  { to: '/planta', key: 'planta' },
+]
+const linksAdmin = [{ to: '/usuarios', key: 'usuarios' }]
+const puedeVer = (key) => (MODULOS[key]?.roles || []).includes(auth.rol)
 
 function toggle() { open.value = !open.value }
 function close() { open.value = false }
@@ -37,12 +49,23 @@ function close() { open.value = false }
       <div class="sidebar-backdrop" v-if="open" @click="close"></div>
       <aside class="sidebar" :class="{ open }">
         <div class="nav-group-label">Operación</div>
-        <router-link class="nav-item" to="/dashboard" @click="close"><AppIcon name="home" /><span>Inicio</span></router-link>
-        <router-link class="nav-item" to="/inventario" @click="close" v-if="['admin','administrativo'].includes(auth.rol)"><AppIcon name="inventory" /><span>Inventario</span></router-link>
-        <router-link class="nav-item" to="/micromedidores" @click="close" v-if="['admin','administrativo','fontanero'].includes(auth.rol)"><AppIcon name="gauge" /><span>Micromedidores</span></router-link>
-        <router-link class="nav-item" to="/planta" @click="close" v-if="['admin','operario','administrativo'].includes(auth.rol)"><AppIcon name="drop" /><span>Planta de tratamiento</span></router-link>
-        <div class="nav-group-label" v-if="auth.rol === 'admin'">Administración</div>
-        <router-link class="nav-item" to="/usuarios" @click="close" v-if="auth.rol === 'admin'"><AppIcon name="users" /><span>Usuarios y roles</span></router-link>
+        <router-link
+          v-for="l in linksOperacion"
+          :key="l.key"
+          v-show="puedeVer(l.key)"
+          class="nav-item"
+          :to="l.to"
+          @click="close"
+        ><AppIcon :name="MODULOS[l.key].icon" /><span>{{ MODULOS[l.key].label }}</span></router-link>
+        <div class="nav-group-label" v-show="puedeVer('usuarios')">Administración</div>
+        <router-link
+          v-for="l in linksAdmin"
+          :key="l.key"
+          v-show="puedeVer(l.key)"
+          class="nav-item"
+          :to="l.to"
+          @click="close"
+        ><AppIcon :name="MODULOS[l.key].icon" /><span>{{ MODULOS[l.key].label }}</span></router-link>
       </aside>
 
       <main class="app-main">

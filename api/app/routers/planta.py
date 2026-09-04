@@ -27,8 +27,10 @@ from ..services import planta as svc_planta
 
 router = APIRouter(prefix="/planta", tags=["Planta de tratamiento"])
 
-_LECTORES = ["admin", "operario", "administrativo"]
+_LECTORES = ["admin", "operario"]
 _ESCRITORES = ["admin", "operario"]
+# CRUD de parámetros: solo admin (el operario no puede crearlos ni editarlos).
+_SOLO_ADMIN = ["admin"]
 
 
 # ----------------------------- Parámetros ------------------------------------
@@ -48,7 +50,7 @@ def listar_parametros(
 def crear_parametro(
     payload: ParametroCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_SOLO_ADMIN)),
 ):
     p = models.ParametroPlanta(**payload.model_dump())
     sellar(p, usuario, nuevo=True)
@@ -63,7 +65,7 @@ def actualizar_parametro(
     pid: int,
     payload: ParametroUpdate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_SOLO_ADMIN)),
 ):
     p = db.get(models.ParametroPlanta, pid)
     if not p:

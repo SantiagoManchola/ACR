@@ -25,6 +25,9 @@ router = APIRouter(prefix="", tags=["Micromedidores"])
 
 _LECTORES = ["admin", "administrativo", "operario", "fontanero"]
 _ESCRITORES = ["admin", "administrativo"]
+# Toma de lecturas: el fontanero solo puede hacer esto (sin CRUD de
+# suscriptores ni medidores, que siguen en _ESCRITORES).
+_TOMADORES_LECTURA = ["admin", "administrativo", "fontanero"]
 
 
 # ----------------------------- Suscriptores ----------------------------------
@@ -209,7 +212,7 @@ def eliminar_micromedidor(
 def crear_lectura(
     payload: LecturaCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_TOMADORES_LECTURA)),
 ):
     micromedidor = db.get(models.Micromedidor, payload.micromedidor_id)
     if not micromedidor:

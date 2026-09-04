@@ -9,7 +9,7 @@ import AppIcon from '../components/AppIcon.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import client, { apiError, descargarReporte } from '../api/http'
-import { fmtNum } from '../utils/format'
+import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 
 const inv = useInventarioStore()
 const auth = useAuthStore()
@@ -59,7 +59,8 @@ function filtrar() { inv.loadElementos(aplicarFiltros()) }
 function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; inv.loadElementos() }
 
 /* Filtros de traslados */
-const filtrosTras = ref({ elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: '', fecha_fin: '' })
+/* Filtros de traslados (fechas por defecto: hoy en Colombia) */
+const filtrosTras = ref({ elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function aplicarFiltrosTras() {
   const f = {}
   if (filtrosTras.value.elemento_id) f.elemento_id = filtrosTras.value.elemento_id
@@ -70,10 +71,10 @@ function aplicarFiltrosTras() {
   return f
 }
 function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras()) }
-function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: '', fecha_fin: '' }; inv.loadTraslados() }
+function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarTras() }
 
-/* Filtros de movimientos */
-const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: '', fecha_fin: '' })
+/* Filtros de movimientos (fechas por defecto: hoy en Colombia) */
+const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function aplicarFiltrosMov() {
   const f = {}
   if (filtrosMov.value.elemento_id) f.elemento_id = filtrosMov.value.elemento_id
@@ -84,7 +85,19 @@ function aplicarFiltrosMov() {
   return f
 }
 function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov()) }
-function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: '', fecha_fin: '' }; inv.loadMovimientos() }
+function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarMov() }
+
+const movTipoOptions = [
+  { value: 'entrada', label: 'Entrada' },
+  { value: 'salida', label: 'Salida' },
+]
+const catTipoOptions = [
+  { value: 'equipo', label: 'Equipo' },
+  { value: 'herramienta', label: 'Herramienta' },
+  { value: 'laboratorio', label: 'Laboratorio' },
+  { value: 'accesorio', label: 'Accesorio' },
+  { value: 'insumo', label: 'Insumo' },
+]
 
 const catOptions = computed(() => inv.categorias.map((c) => ({ value: c.id, label: `${c.nombre} (${c.tipo})` })))
 const ubiOptions = computed(() => inv.ubicaciones.map((u) => ({ value: u.id, label: u.nombre })))
@@ -181,7 +194,7 @@ const emptyForm = () => ({
   observaciones: '', ubicacion_inicial: null, cantidad_inicial: '',
 })
 const form = ref(emptyForm())
-const movForm = ref({ ubicacion_id: null, cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) })
+const movForm = ref({ ubicacion_id: null, cantidad: '', motivo: '', observaciones: '', fecha: hoyColombia() })
 
 const elementosCols = [
   { key: 'nombre', label: 'Elemento' },
@@ -224,7 +237,7 @@ function openMov(row, tipo) {
   movElem.value = row
   movTipo.value = tipo
   const primera = (row.stock && row.stock[0] && row.stock[0].ubicacion_id) || null
-  movForm.value = { ubicacion_id: primera, cantidad: '', motivo: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) }
+  movForm.value = { ubicacion_id: primera, cantidad: '', motivo: '', observaciones: '', fecha: hoyColombia() }
   movError.value = ''
   showMov.value = true
 }
@@ -274,10 +287,10 @@ async function saveMov() {
 
 /* Traslados: mover el MISMO producto entre dos ubicaciones */
 const showTras = ref(false)
-const trasForm = ref({ elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) })
+const trasForm = ref({ elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: hoyColombia() })
 const trasError = ref('')
 function openNewTras() {
-  trasForm.value = { elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: new Date().toISOString().slice(0, 10) }
+  trasForm.value = { elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: hoyColombia() }
   trasError.value = ''; showTras.value = true
 }
 const trasUbicOrigenOptions = computed(() => {
@@ -338,9 +351,9 @@ onMounted(async () => {
   await inv.loadCategorias()
   await inv.loadUbicaciones()
   await inv.loadElementos()
-  await inv.loadMovimientos()
   await inv.loadAlertas()
-  await inv.loadTraslados()
+  filtrarMov()
+  filtrarTras()
 })
 
 watch(() => tab.value, (t) => {
@@ -379,17 +392,11 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Categoría</label>
-          <select class="select" v-model="filtros.categoria_id">
-            <option value="">Todas</option>
-            <option v-for="c in catOptions" :key="c.value" :value="c.value">{{ c.label }}</option>
-          </select>
+          <SearchableSelect v-model="filtros.categoria_id" :options="catOptions" placeholder="Todas" clearable />
         </div>
         <div class="field">
           <label>Ubicación</label>
-          <select class="select" v-model="filtros.ubicacion_id">
-            <option value="">Todas</option>
-            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
-          </select>
+          <SearchableSelect v-model="filtros.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
         <div class="field filter-actions">
           <button class="btn btn-primary" @click="filtrar"><AppIcon name="search" />Filtrar</button>
@@ -424,11 +431,7 @@ watch(() => tab.value, (t) => {
         </template>
       </DataTable>
       <div class="report-bar">
-        <select class="select" v-model="formatoReporte">
-          <option value="csv">CSV</option>
-          <option value="xlsx">XLSX</option>
-          <option value="pdf">PDF</option>
-        </select>
+        <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:140px" />
         <button class="btn btn-ghost" @click="generarReporte('elementos')"><AppIcon name="download" />Generar reporte</button>
       </div>
       <BaseAlert v-if="repError" type="bad" class="mt-1">{{ repError }}</BaseAlert>
@@ -480,17 +483,11 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Origen</label>
-          <select class="select" v-model="filtrosTras.origen_id">
-            <option value="">Todas</option>
-            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
-          </select>
+          <SearchableSelect v-model="filtrosTras.origen_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
         <div class="field">
           <label>Destino</label>
-          <select class="select" v-model="filtrosTras.destino_id">
-            <option value="">Todas</option>
-            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
-          </select>
+          <SearchableSelect v-model="filtrosTras.destino_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
         <div class="field">
           <label>Desde</label>
@@ -526,18 +523,11 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Ubicación</label>
-          <select class="select" v-model="filtrosMov.ubicacion_id">
-            <option value="">Todas</option>
-            <option v-for="u in ubiOptions" :key="u.value" :value="u.value">{{ u.label }}</option>
-          </select>
+          <SearchableSelect v-model="filtrosMov.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
         <div class="field">
           <label>Tipo</label>
-          <select class="select" v-model="filtrosMov.tipo">
-            <option value="">Todos</option>
-            <option value="entrada">Entrada</option>
-            <option value="salida">Salida</option>
-          </select>
+          <SearchableSelect v-model="filtrosMov.tipo" :options="movTipoOptions" placeholder="Todos" clearable />
         </div>
         <div class="field">
           <label>Desde</label>
@@ -675,13 +665,7 @@ watch(() => tab.value, (t) => {
       <div class="form-row">
         <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="catForm.nombre" /></div>
         <div class="field"><label>Tipo *</label>
-          <select class="select" v-model="catForm.tipo">
-            <option value="equipo">Equipo</option>
-            <option value="herramienta">Herramienta</option>
-            <option value="laboratorio">Laboratorio</option>
-            <option value="accesorio">Accesorio</option>
-            <option value="insumo">Insumo</option>
-          </select>
+          <SearchableSelect v-model="catForm.tipo" :options="catTipoOptions" placeholder="Tipo" />
         </div>
         <div class="field" style="grid-column:span 2"><label>Descripción</label><textarea class="textarea" v-model="catForm.descripcion" /></div>
       </div>

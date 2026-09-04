@@ -87,21 +87,22 @@ function onKeydown(e) {
 </template>
 
 <style scoped>
-.ss { position: relative; width: 100%; }
+.ss { position: relative; width: 100%; min-width: 0; }
 .ss-control {
   display: flex; align-items: center; gap: .35rem;
+  min-width: 0;
   border: 1px solid var(--acr-borde); border-radius: var(--acr-radio-sm);
   background: #fff; padding: 0 .5rem;
 }
 .ss-control.open { border-color: var(--acr-azul); box-shadow: 0 0 0 3px rgba(33, 96, 173, .15); }
 .ss-control.disabled { background: #F4F8FD; opacity: .8; }
 .ss-input {
-  flex: 1; border: none; outline: none; background: transparent;
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
   padding: .55rem .25rem; font-size: .9rem; font-family: inherit; color: var(--acr-texto);
 }
 .ss-chev { color: var(--acr-texto-suave); flex: none; transform: rotate(0deg); transition: transform .15s; }
 .ss-control.open .ss-chev { transform: rotate(180deg); }
-.ss-clear { background: none; border: none; cursor: pointer; color: var(--acr-texto-suave); display: grid; place-items: center; }
+.ss-clear { background: none; border: none; cursor: pointer; color: var(--acr-texto-suave); display: grid; place-items: center; flex: none; padding: 0; }
 .ss-drop {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
   background: #fff; border: 1px solid var(--acr-borde); border-radius: var(--acr-radio-sm);
