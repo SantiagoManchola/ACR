@@ -33,13 +33,22 @@ def _lectura_previa(db: Session, micromedidor_id: int, fecha):
 
 
 def _promedio_historico(db: Session, micromedidor_id: int):
-    """Promedio de consumos registrados (None si no hay ninguno)."""
-    return db.execute(
-        select(func.avg(models.Lectura.consumo)).where(
+    """Promedio de los consumos de las ÚLTIMAS 6 lecturas (None si no hay ninguno).
+
+    Solo se usan las 6 mediciones más recientes, no todo el histórico, para que
+    la estimación refleje el consumo actual del suscriptor.
+    """
+    ultimas = (
+        select(models.Lectura.consumo)
+        .where(
             models.Lectura.micromedidor_id == micromedidor_id,
             models.Lectura.consumo.isnot(None),
         )
-    ).scalar()
+        .order_by(models.Lectura.fecha.desc(), models.Lectura.id.desc())
+        .limit(6)
+        .subquery()
+    )
+    return db.execute(select(func.avg(ultimas.c.consumo))).scalar()
 
 
 def resolver_lectura(
