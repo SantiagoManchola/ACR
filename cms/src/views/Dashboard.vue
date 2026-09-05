@@ -171,7 +171,7 @@ function buildKpis() {
   }
   if (verConsumo.value) {
     out.push({
-      label: `Consumo total (${periodoConsumo.value}d)`, value: `${fmtNum(consumoTotal.value)} m³`, to: '/micromedidores', icon: 'report',
+      label: `Consumo total micromedición (${periodoConsumo.value}d)`, value: `${fmtNum(consumoTotal.value)} m³`, to: '/micromedidores', icon: 'report',
       sub: promedioGlobal.value !== null ? `Prom. ${fmtNum(promedioGlobal.value)} m³/lectura` : 'Sin lecturas en el periodo',
     })
   }
