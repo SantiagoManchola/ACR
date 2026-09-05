@@ -29,7 +29,7 @@ function close() { open.value = false }
         <AppIcon name="menu" />
       </button>
       <div class="brand">
-        <span class="logo"><AppIcon name="drop" :size="20" /></span>
+        <span class="logo"><img src="/acr-logo.png" alt="ACR" /></span>
         <span>ACR<small>Acueducto Comunitario Acuaricaurte</small></span>
       </div>
       <div class="spacer"></div>

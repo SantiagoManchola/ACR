@@ -9,6 +9,7 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   autocomplete: { type: String, default: 'new-password' },
   id: { type: String, default: '' },
+  icon: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -19,8 +20,10 @@ const show = ref(false)
   <div class="field" style="margin-bottom:.85rem">
     <label v-if="label">{{ label }}<span v-if="required" style="color:var(--acr-bad)"> *</span></label>
     <div style="position:relative">
+      <AppIcon v-if="icon" :name="icon" :size="18" class="pw-leading" />
       <input
-        class="input"
+        class="input pw-pad"
+        :class="{ 'has-leading': icon }"
         :id="id"
         :type="show ? 'text' : 'password'"
         :value="modelValue"
@@ -48,4 +51,10 @@ const show = ref(false)
   display: grid; place-items: center; padding: 4px; border-radius: 6px;
 }
 .pw-toggle:hover { color: var(--acr-azul); background: var(--acr-azul-50); }
+.pw-leading {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--acr-texto-suave); pointer-events: none;
+}
+.input.pw-pad { padding-right: 2.4rem; }
+.input.pw-pad.has-leading { padding-left: 2.4rem; }
 </style>
