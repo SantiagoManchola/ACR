@@ -24,10 +24,17 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
     async loadSectores() {
       this.error = null
       try {
-        const { data } = await client.get('/suscriptores/sectores')
+        const { data } = await client.get('/sectores')
         this.sectores = data
       } catch (e) { this.error = apiError(e) }
     },
+    async loadConteoSectores() {
+      const { data } = await client.get('/sectores/conteo')
+      return data
+    },
+    async createSector(p) { const { data } = await client.post('/sectores', p); this.sectores.push(data); return data },
+    async updateSector(id, p) { const { data } = await client.patch(`/sectores/${id}`, p); const i = this.sectores.findIndex((s) => s.id === id); if (i >= 0) this.sectores[i] = data; return data },
+    async deleteSector(id) { await client.delete(`/sectores/${id}`); const i = this.sectores.findIndex((s) => s.id === id); if (i >= 0) this.sectores[i].estado = 'inactivo' },
     async loadHistorialSuscriptor(sid) {
       this.error = null
       try {

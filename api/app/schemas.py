@@ -256,6 +256,21 @@ class SuscriptorOut(_ORM):
     estado: EstadoRegistro
 
 
+class SectorCreate(BaseModel):
+    nombre: str = Field(min_length=1, max_length=80)
+
+
+class SectorUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    estado: Optional[EstadoRegistro] = None
+
+
+class SectorOut(_ORM):
+    id: int
+    nombre: str
+    estado: EstadoRegistro
+
+
 class MicromedidorCreate(BaseModel):
     serial: str = Field(min_length=1, max_length=50)
     tipo: Optional[str] = None

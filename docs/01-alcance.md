@@ -34,6 +34,7 @@
   RF-30 Consulta de consumos · RF-31 Consumo promedio (histórico) · RF-32 Novedades ·
   RF-33 Corrección de lecturas · RF-34 Consulta por sector/barrio · RF-35 Reportes de consumo ·
   RF-36 Exportación.
+- Catálogo de sectores (solo admin crea/renombra/inactiva; el suscriptor exige sector activo del catálogo).
 
 ### Módulo de planta de tratamiento
 - RF-37 Parámetros · RF-38 Agua cruda · RF-39 Agua tratada · RF-40 Configuración de parámetros ·

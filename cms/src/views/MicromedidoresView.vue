@@ -18,11 +18,18 @@ const auth = useAuthStore()
 const tab = ref('suscriptores')
 // El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
 const esFontanero = computed(() => auth.rol === 'fontanero')
+const esAdmin = computed(() => auth.rol === 'admin')
 
 const susMap = computed(() => Object.fromEntries(mm.suscriptores.map((s) => [s.id, s.nombre])))
 const susOptions = computed(() => mm.suscriptores.map((s) => ({ value: s.id, label: s.nombre })))
 const mmMap = computed(() => Object.fromEntries(mm.micromedidores.map((m) => [m.id, m.serial])))
-const sectorOptions = computed(() => mm.sectores.map((s) => ({ value: s, label: s })))
+const sectorOptions = computed(() => mm.sectores.map((s) => ({
+  value: s.nombre,
+  label: s.estado === 'activo' ? s.nombre : `${s.nombre} (inactivo)`,
+})))
+const sectorActivosOptions = computed(() => mm.sectores
+  .filter((s) => s.estado === 'activo')
+  .map((s) => ({ value: s.nombre, label: s.nombre })))
 
 const tipoUsuarioOptions = [
   { value: 'residencial', label: 'Residencial' },
@@ -49,6 +56,7 @@ const pendingDel = ref(null)
 function askDel(tipo, r) {
   pendingDel.value = { tipo, id: r.id }
   if (tipo === 'sus') { confirmTitle.value = 'Inactivar suscriptor'; confirmMsg.value = `¿Inactivar al suscriptor «${r.nombre}»?` }
+  else if (tipo === 'sec') { confirmTitle.value = 'Inactivar sector'; confirmMsg.value = `¿Inactivar el sector «${r.nombre}»? Ya no será asignable, pero el historial se conserva.` }
   else { confirmTitle.value = 'Inactivar micromedidor'; confirmMsg.value = `¿Inactivar el micromedidor «${r.serial}»?` }
   confirmShow.value = true
 }
@@ -57,6 +65,7 @@ async function doDel() {
   confirmShow.value = false
   if (!p) return
   if (p.tipo === 'sus') { await mm.deleteSuscriptor(p.id); await mm.loadSuscriptores() }
+  else if (p.tipo === 'sec') { await mm.deleteSector(p.id); await cargarSectores() }
   else { await mm.deleteMicromedidor(p.id); await mm.loadMicromedidores() }
   pendingDel.value = null
 }
@@ -142,6 +151,41 @@ async function delSus(r) { askDel('sus', r) }
 async function reactivarSus(r) {
   await mm.updateSuscriptor(r.id, { estado: 'activo' })
   await mm.loadSuscriptores()
+}
+
+/* ---------------- Sectores (catálogo, solo admin) ---------------- */
+const showSec = ref(false)
+const editingSec = ref(null)
+const secError = ref('')
+const secForm = ref({ nombre: '' })
+const conteoSec = ref({})
+const secCols = [
+  { key: 'nombre', label: 'Sector' },
+  { key: 'suscriptores', label: 'Suscriptores', align: 'right', num: true },
+  { key: 'estado', label: 'Estado' },
+]
+async function cargarSectores() {
+  await mm.loadSectores()
+  if (esAdmin.value) {
+    try { conteoSec.value = await mm.loadConteoSectores() } catch { conteoSec.value = {} }
+  }
+}
+function openNewSec() { editingSec.value = null; secForm.value = { nombre: '' }; secError.value = ''; showSec.value = true }
+function openEditSec(r) { editingSec.value = r; secForm.value = { nombre: r.nombre }; secError.value = ''; showSec.value = true }
+async function saveSec() {
+  secError.value = ''
+  if (!secForm.value.nombre || !secForm.value.nombre.trim()) { secError.value = 'El nombre es obligatorio.'; return }
+  saving.value = true
+  try {
+    if (editingSec.value) await mm.updateSector(editingSec.value.id, { nombre: secForm.value.nombre.trim() })
+    else await mm.createSector({ nombre: secForm.value.nombre.trim() })
+    showSec.value = false; await cargarSectores()
+  } catch (e) { secError.value = apiError(e) } finally { saving.value = false }
+}
+async function delSec(r) { askDel('sec', r) }
+async function reactivarSec(r) {
+  await mm.updateSector(r.id, { estado: 'activo' })
+  await cargarSectores()
 }
 
 /* ---------------- Micromedidores ---------------- */
@@ -436,6 +480,7 @@ onMounted(async () => {
       <button :class="{ active: tab === 'suscriptores' }" @click="tab = 'suscriptores'"><AppIcon name="users" />Suscriptores</button>
       <button :class="{ active: tab === 'micromedidores' }" @click="tab = 'micromedidores'"><AppIcon name="gauge" />Micromedidores</button>
       <button :class="{ active: tab === 'lecturas' }" @click="tab = 'lecturas'"><AppIcon name="edit" />Lecturas</button>
+      <button v-if="esAdmin" :class="{ active: tab === 'sectores' }" @click="tab = 'sectores'"><AppIcon name="mapPin" />Sectores</button>
     </div>
 
     <!-- SUSCRIPTORES -->
@@ -558,6 +603,27 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- SECTORES (catálogo, solo admin) -->
+    <div v-else-if="tab === 'sectores'">
+      <p class="muted">Catálogo de sectores para clasificar suscriptores. Solo el admin puede agregar, renombrar o inactivar. Un sector inactivo ya no es asignable, pero el historial se conserva.</p>
+      <div class="toolbar">
+        <button class="btn btn-primary" @click="openNewSec"><AppIcon name="plus" />Nuevo sector</button>
+        <button class="btn btn-ghost" @click="cargarSectores"><AppIcon name="refresh" />Refrescar</button>
+      </div>
+      <DataTable :columns="secCols" :rows="mm.sectores" :loading="mm.loading" empty-text="Sin sectores en el catálogo.">
+        <template #cell="{ row, col }">
+          <span v-if="col.key === 'suscriptores'" :style="{ textAlign: col.align }">{{ conteoSec[row.nombre] ?? '—' }}</span>
+          <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
+          <span v-else>{{ row[col.key] ?? '—' }}</span>
+        </template>
+        <template #row-actions="{ row }">
+          <button class="btn btn-ghost btn-sm" @click="openEditSec(row)" title="Renombrar"><AppIcon name="edit" :size="16" /></button>
+          <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delSec(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
+          <button v-else class="btn btn-ghost btn-sm" @click="reactivarSec(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+        </template>
+      </DataTable>
+    </div>
+
     <!-- MODAL SUSCRIPTOR -->
     <BaseModal v-model="showSus" :title="editingSus ? 'Editar suscriptor' : 'Nuevo suscriptor'">
       <BaseAlert v-if="susError" type="bad" class="mb-1">{{ susError }}</BaseAlert>
@@ -568,7 +634,8 @@ onMounted(async () => {
           <SearchableSelect v-model="susForm.tipo_usuario" :options="tipoUsuarioOptions" placeholder="Tipo de usuario" />
         </div>
         <div class="field"><label>Sector / barrio</label>
-          <SearchableSelect v-model="susForm.sector" :options="sectorOptions" placeholder="Seleccione o escriba un sector" clearable />
+          <SearchableSelect v-model="susForm.sector" :options="sectorActivosOptions" placeholder="Seleccione un sector del catálogo" clearable />
+          <p class="hint">Solo sectores activos del catálogo (pestaña Sectores, solo admin).</p>
         </div>
         <div class="field"><label>Código de usuario</label><input class="input" v-model="susForm.codigo_usuario" /></div>
         <div class="field"><label>Código de facturación</label><input class="input" v-model="susForm.codigo_facturacion" /></div>
@@ -577,6 +644,20 @@ onMounted(async () => {
       <template #footer>
         <button class="btn btn-ghost" @click="showSus = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveSus">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+      </template>
+    </BaseModal>
+
+    <!-- MODAL SECTOR -->
+    <BaseModal v-model="showSec" :title="editingSec ? 'Renombrar sector' : 'Nuevo sector'">
+      <BaseAlert v-if="secError" type="bad" class="mb-1">{{ secError }}</BaseAlert>
+      <div class="form-row">
+        <div class="field" style="grid-column:span 2"><label>Nombre *</label><input class="input" v-model="secForm.nombre" placeholder="Ej. VILLA NUEVA" style="text-transform:uppercase" /></div>
+      </div>
+      <p v-if="editingSec" class="hint">Al renombrar, los suscriptores de «{{ editingSec.nombre }}» se actualizan automáticamente.</p>
+      <p v-else class="hint">Se recomienda en mayúsculas. Quedará disponible de inmediato en filtros y formularios.</p>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showSec = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveSec">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
       </template>
     </BaseModal>
 

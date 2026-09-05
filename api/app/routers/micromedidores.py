@@ -62,7 +62,10 @@ def crear_suscriptor(
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
 ):
-    sus = models.Suscriptor(**payload.model_dump())
+    datos = payload.model_dump()
+    # El sector debe existir en el catálogo (se guarda el nombre canónico).
+    datos["sector"] = svc_mm.normalizar_sector(db, datos.get("sector"))
+    sus = models.Suscriptor(**datos)
     sellar(sus, usuario, nuevo=True)
     db.add(sus)
     db.commit()
@@ -97,7 +100,10 @@ def actualizar_suscriptor(
     sus = db.get(models.Suscriptor, sid)
     if not sus:
         raise HTTPException(404, "Suscriptor no encontrado")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    datos = payload.model_dump(exclude_unset=True)
+    if "sector" in datos:
+        datos["sector"] = svc_mm.normalizar_sector(db, datos["sector"])
+    for k, v in datos.items():
         setattr(sus, k, v)
     sellar(sus, usuario, nuevo=False)
     db.commit()

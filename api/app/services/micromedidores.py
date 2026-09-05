@@ -184,10 +184,38 @@ def filtrar_lecturas(db: Session, *, micromedidor_id=None, suscriptor_id=None,
 
 
 def sectores_disponibles(db: Session):
-    return [s for (s,) in db.execute(
-        select(models.Suscriptor.sector).where(models.Suscriptor.sector.isnot(None))
-        .distinct().order_by(models.Suscriptor.sector)
-    ).all()]
+    """Sectores ACTIVOS del catálogo (para filtros y formularios)."""
+    return [s.nombre for s in db.execute(
+        select(models.Sector)
+        .where(models.Sector.estado == models.EstadoRegistro.activo)
+        .order_by(models.Sector.nombre)
+    ).scalars().all()]
+
+
+def normalizar_sector(db: Session, sector: str | None) -> str | None:
+    """Valida el sector contra el catálogo y devuelve el nombre canónico.
+
+    Vacío/None -> None (sin sector). Insensible a mayúsculas y espacios.
+    Solo admite sectores ACTIVOS (los inactivos conservan el historial pero
+    ya no son asignables). Lanza 400 si no existe en el catálogo.
+    """
+    if sector is None or not str(sector).strip():
+        return None
+    desde = str(sector).strip()
+    fila = db.execute(
+        select(models.Sector).where(func.lower(models.Sector.nombre) == desde.lower())
+    ).scalars().first()
+    if fila is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Sector «{desde}» no válido: créelo primero en el catálogo de sectores.",
+        )
+    if fila.estado != models.EstadoRegistro.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"El sector «{fila.nombre}» está inactivo y ya no es asignable.",
+        )
+    return fila.nombre
 
 
 def historial_suscriptor(db: Session, sid: int):

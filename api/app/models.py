@@ -239,9 +239,25 @@ class Suscriptor(Base):
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
 
+class Sector(Base):
+    """Catálogo administrable de sectores/barrios (clasificación de suscriptores).
+
+    Solo el admin crea/edita/inactiva. Inactivar no borra el historial: los
+    suscriptores conservan el texto, pero ya no es asignable a nuevos.
+    """
+    __tablename__ = "sectores"
+
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String(80), nullable=False, unique=True)
+    estado = Column(_estado(), nullable=False, server_default=EstadoRegistro.activo.value)
+    created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class Micromedidor(Base):
     __tablename__ = "micromedidores"
-
     id = Column(Integer, primary_key=True)
     serial = Column(String(50), nullable=False, unique=True)
     tipo = Column(String(50))

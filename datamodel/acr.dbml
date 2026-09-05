@@ -204,7 +204,7 @@ Table suscriptores {
   codigo_usuario    varchar(30) [unique] // código interno
   codigo_facturacion varchar(30) // código sistema de facturación
   tipo_usuario      tipo_usuario [not null, default: 'residencial']
-  sector            varchar(80)  // barrio/sector (RF-34)
+  sector            varchar(80)  // barrio/sector del catálogo `sectores` (RF-34)
   direccion         varchar(200)
   estado            estado_registro [not null, default: 'activo'] // soft delete
   created_by        integer [ref: > usuarios.id]
@@ -215,6 +215,16 @@ Table suscriptores {
     (sector)
     (codigo_usuario)
   }
+}
+
+Table sectores {
+  id                serial [pk]
+  nombre            varchar(80) [not null, unique] // ALBANIA, LA ISLA, MIRAMAR, ORQUIDEAS, RICAURTE, VILLA BARBARA…
+  estado            estado_registro [not null, default: 'activo'] // inactivo = no asignable, el historial se conserva
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
 }
 
 Table micromedidores {

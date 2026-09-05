@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import auth, evidencias, inventario, micromedidores, planta, reportes, usuarios
+from .routers import auth, evidencias, inventario, micromedidores, planta, reportes, sectores, usuarios
 
 app = FastAPI(
     title="API ACR — Acueducto Comunitario Acuaricaurte",
@@ -31,6 +31,7 @@ app.include_router(usuarios.router)
 app.include_router(evidencias.router)
 app.include_router(inventario.router)
 app.include_router(micromedidores.router)
+app.include_router(sectores.router)
 app.include_router(planta.router)
 app.include_router(reportes.router)
 
