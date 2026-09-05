@@ -22,6 +22,16 @@ const rol = computed(() => auth.rol)
 const puedeInventario = computed(() => ['admin', 'administrativo', 'operario'].includes(rol.value))
 const puedeMM = computed(() => ['admin', 'administrativo', 'operario', 'fontanero'].includes(rol.value))
 const puedePlanta = computed(() => ['admin', 'operario'].includes(rol.value))
+const esAdministrativo = computed(() => rol.value === 'administrativo')
+const esFontanero = computed(() => rol.value === 'fontanero')
+const esOperario = computed(() => rol.value === 'operario')
+/* Visibilidad fina por rol:
+   - administrativo: inventario/alertas solo Oficina; químicos NO ve nada.
+   - fontanero y operario: sin consumo (ni total ni por medidor).
+   - operario: sin suscriptores/medidores/frenados. */
+const verQuimicos = computed(() => puedeInventario.value && !esAdministrativo.value)
+const verConsumo = computed(() => puedeMM.value && !esFontanero.value && !esOperario.value)
+const verMedidores = computed(() => puedeMM.value && !esOperario.value)
 
 /* Periodo del gráfico de consumo (días hacia atrás desde hoy Colombia) */
 const periodoConsumo = ref(60)
@@ -36,10 +46,12 @@ async function load() {
   loading.value = true
   const tareas = []
   if (puedeInventario.value) {
-    tareas.push(inv.loadElementos(), inv.loadAlertas(), inv.loadQuimicos(), inv.loadUbicaciones())
+    tareas.push(inv.loadElementos(), inv.loadAlertas())
+    if (verQuimicos.value) tareas.push(inv.loadQuimicos(), inv.loadUbicaciones())
   }
   if (puedeMM.value) {
-    tareas.push(mm.loadSuscriptores(), mm.loadMicromedidores(), mm.loadLecturas({ fecha_inicio: isoHaceDias(periodoConsumo.value) }))
+    tareas.push(mm.loadSuscriptores(), mm.loadMicromedidores())
+    if (verConsumo.value) tareas.push(mm.loadLecturas({ fecha_inicio: isoHaceDias(periodoConsumo.value) }))
   }
   if (puedePlanta.value) {
     tareas.push(planta.loadFueraRango())
@@ -50,7 +62,7 @@ async function load() {
 }
 
 watch(periodoConsumo, async () => {
-  if (!puedeMM.value) return
+  if (!verConsumo.value) return
   await mm.loadLecturas({ fecha_inicio: isoHaceDias(periodoConsumo.value) })
   buildKpis()
 })
@@ -130,10 +142,10 @@ function serialCorto(s) {
 /* ---------------- Puntos críticos (para decidir) ---------------- */
 const puntosCriticos = computed(() => {
   const out = []
-  if (puedeMM.value && frenados.value.length) {
+  if (puedeMM.value && frenados.value.length && verMedidores.value) {
     out.push({ icon: 'gauge', texto: `${frenados.value.length} medidor(es) frenado(s): requieren revisión en campo`, to: '/micromedidores', tone: 'bad' })
   }
-  if (puedeInventario.value && quimicosBajos.value) {
+  if (verQuimicos.value && quimicosBajos.value) {
     out.push({ icon: 'flask', texto: `${quimicosBajos.value} químico(s) en planta en mínimo o por debajo`, to: '/planta', tone: 'bad' })
   }
   if (puedePlanta.value && planta.fueraRango.length) {
@@ -148,14 +160,16 @@ const puntosCriticos = computed(() => {
 function buildKpis() {
   const out = []
   if (puedeInventario.value) {
-    out.push({ label: 'Elementos en inventario', value: inv.elementos.length, to: '/inventario', icon: 'inventory' })
+    out.push({ label: 'Elementos en inventario', value: inv.elementos.length, to: '/inventario', icon: 'inventory', sub: esAdministrativo.value ? 'Solo Oficina' : undefined })
     out.push({ label: 'Alertas de existencia', value: inv.alertas.length, to: '/inventario', icon: 'alert', tone: inv.alertas.length ? 'bad' : 'ok', sub: inv.alertas.length ? 'Reponer stock' : 'Stock al día' })
-    out.push({ label: 'Químicos en planta', value: quimicosPlanta.value.length, to: '/planta', icon: 'flask', tone: quimicosBajos.value ? 'bad' : '', sub: quimicosBajos.value ? `${quimicosBajos.value} en mínimo` : 'Niveles OK' })
+    if (verQuimicos.value) out.push({ label: 'Químicos en planta', value: quimicosPlanta.value.length, to: '/planta', icon: 'flask', tone: quimicosBajos.value ? 'bad' : '', sub: quimicosBajos.value ? `${quimicosBajos.value} en mínimo` : 'Niveles OK' })
   }
-  if (puedeMM.value) {
+  if (verMedidores.value) {
     out.push({ label: 'Suscriptores', value: mm.suscriptores.length, to: '/micromedidores', icon: 'users' })
     out.push({ label: 'Micromedidores', value: mm.micromedidores.length, to: '/micromedidores', icon: 'gauge' })
     out.push({ label: 'Medidores frenados', value: frenados.value.length, to: '/micromedidores', icon: 'alert', tone: frenados.value.length ? 'bad' : 'ok', sub: frenados.value.length ? 'Revisión en campo' : 'Sin frenados' })
+  }
+  if (verConsumo.value) {
     out.push({
       label: `Consumo total (${periodoConsumo.value}d)`, value: `${fmtNum(consumoTotal.value)} m³`, to: '/micromedidores', icon: 'report',
       sub: promedioGlobal.value !== null ? `Prom. ${fmtNum(promedioGlobal.value)} m³/lectura` : 'Sin lecturas en el periodo',
@@ -228,8 +242,8 @@ onMounted(load)
     </div>
 
     <div class="dash-grid">
-      <!-- 1. Químicos disponibles en planta -->
-      <div v-if="puedeInventario" class="card dash-card">
+      <!-- 1. Químicos disponibles en planta (no visible para administrativo) -->
+      <div v-if="verQuimicos" class="card dash-card">
         <div class="card-head">
           <div class="title"><AppIcon name="flask" /><h3>Químicos en planta</h3>
             <span v-if="quimicosBajos" class="badge badge-bad">{{ quimicosBajos }} en mínimo</span>
@@ -254,8 +268,8 @@ onMounted(load)
         <p v-else class="muted">Sin químicos con stock en planta.</p>
       </div>
 
-      <!-- 2. Consumo total / promedio por medidor -->
-      <div v-if="puedeMM" class="card dash-card">
+      <!-- 2. Consumo total / promedio por medidor (no visible para fontanero) -->
+      <div v-if="verConsumo" class="card dash-card">
         <div class="card-head">
           <div class="title"><AppIcon name="report" /><h3>Consumo por medidor</h3></div>
           <div class="seg">
@@ -281,8 +295,8 @@ onMounted(load)
         </div>
       </div>
 
-      <!-- 3. Medidores frenados -->
-      <div v-if="puedeMM" class="card dash-card dash-alert" :class="{ 'is-critical': frenados.length }">
+      <!-- 3. Medidores frenados (no visible para operario) -->
+      <div v-if="verMedidores" class="card dash-card dash-alert" :class="{ 'is-critical': frenados.length }">
         <div class="card-head">
           <div class="title"><AppIcon name="gauge" /><h3>Medidores frenados</h3>
             <span class="badge" :class="frenados.length ? 'badge-bad' : 'badge-ok'">{{ frenados.length }}</span>
