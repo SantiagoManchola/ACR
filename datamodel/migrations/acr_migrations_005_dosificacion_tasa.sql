@@ -1,3 +1,5 @@
+-- NOTA: ya consolidado en acr_migrations.sql (principal actualizado).
+-- Solo aplicar si tu BD se creó con una versión anterior del principal.
 -- Migración increment: agrega a `dosificaciones` la tasa/caudal con la que
 -- dosifica la bomba (ej. ml/min). Es un dato INFORMATIVO: NO descuenta
 -- inventario. Lo que descuenta sigue siendo `cantidad` (químico incorporado,

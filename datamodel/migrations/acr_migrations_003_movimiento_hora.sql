@@ -1,3 +1,5 @@
+-- NOTA: ya consolidado en acr_migrations.sql (principal actualizado).
+-- Solo aplicar si tu BD se creó con una versión anterior del principal.
 -- Migración increment: agrega la columna `hora` a `movimientos_inventario`
 -- para registrar la hora del movimiento además de la fecha (punto 3).
 --

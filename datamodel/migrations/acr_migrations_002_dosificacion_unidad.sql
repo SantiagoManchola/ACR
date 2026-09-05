@@ -1,3 +1,5 @@
+-- NOTA: ya consolidado en acr_migrations.sql (principal actualizado).
+-- Solo aplicar si tu BD se creó con una versión anterior del principal.
 -- Migración increment: agrega la columna `unidad` a `dosificaciones`
 -- para guardar la unidad del químico al momento de la dosificación
 -- (punto 4: el valor queda fijo aunque luego se cambie la unidad del producto).

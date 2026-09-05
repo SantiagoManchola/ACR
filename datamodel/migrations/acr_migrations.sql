@@ -173,6 +173,28 @@ CREATE TABLE IF NOT EXISTS movimientos_inventario (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------- Micromedidores -------------------------------
+-- Catálogo administrable de sectores (clasificación de suscriptores, mig. 007).
+-- Solo el admin crea/renombra/inactiva; `suscriptores.sector` guarda el nombre canónico.
+CREATE TABLE IF NOT EXISTS sectores (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  nombre        VARCHAR(80) NOT NULL UNIQUE,
+  estado        ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
+  created_by    INT,
+  updated_by    INT,
+  created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_sec_created FOREIGN KEY (created_by) REFERENCES usuarios(id) ON DELETE SET NULL,
+  CONSTRAINT fk_sec_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO sectores (nombre) VALUES
+  ('ALBANIA'),
+  ('LA ISLA'),
+  ('MIRAMAR'),
+  ('ORQUIDEAS'),
+  ('RICAURTE'),
+  ('VILLA BARBARA');
+
 CREATE TABLE IF NOT EXISTS suscriptores (
   id                INT AUTO_INCREMENT PRIMARY KEY,
   nombre            VARCHAR(150) NOT NULL,
@@ -181,8 +203,7 @@ CREATE TABLE IF NOT EXISTS suscriptores (
   codigo_facturacion VARCHAR(30),
   tipo_usuario      ENUM('residencial','comercial','otro') NOT NULL DEFAULT 'residencial',
   sector            VARCHAR(80),
-  direccion         VARCHAR(200),
-  estado            ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
+  direccion         VARCHAR(200),  estado            ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
   created_by        INT,
   updated_by        INT,
   created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -224,6 +245,7 @@ CREATE TABLE IF NOT EXISTS lecturas (
   responsable_id  INT,
   novedad         VARCHAR(200),
   irregular       TINYINT(1) NOT NULL DEFAULT 0,
+  foto_url        VARCHAR(500) NULL,
   created_by      INT,
   updated_by      INT,
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -288,6 +310,7 @@ CREATE TABLE IF NOT EXISTS mediciones (
   fuera_rango       TINYINT(1) NOT NULL DEFAULT 0,
   accion_correctiva TEXT,
   observaciones     TEXT,
+  foto_url          VARCHAR(500) NULL,
   created_by        INT,
   updated_by        INT,
   created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -309,6 +332,7 @@ CREATE TABLE IF NOT EXISTS actividades_planta (
   estado        ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
   observaciones TEXT,
   evidencia     VARCHAR(255),
+  foto_url      VARCHAR(500) NULL,
   created_by    INT,
   updated_by    INT,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

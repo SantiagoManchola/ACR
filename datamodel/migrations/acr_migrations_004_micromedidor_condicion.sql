@@ -1,3 +1,5 @@
+-- NOTA: ya consolidado en acr_migrations.sql (principal actualizado).
+-- Solo aplicar si tu BD se creó con una versión anterior del principal.
 -- Migración increment: agrega la columna `condicion` a `micromedidores`
 -- para la condición operativa del medidor (punto 1):
 --   bueno      -> normal (por defecto)
