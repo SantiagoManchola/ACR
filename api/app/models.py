@@ -274,6 +274,8 @@ class Lectura(Base):
     responsable_id = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     novedad = Column(String(200))
     irregular = Column(Boolean, nullable=False, server_default="0")
+    # Evidencia fotográfica opcional (URL pública en R2).
+    foto_url = Column(String(500))
     created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
@@ -309,6 +311,8 @@ class Medicion(Base):
     fuera_rango = Column(Boolean, nullable=False, server_default="0")
     accion_correctiva = Column(Text())
     observaciones = Column(Text())
+    # Evidencia fotográfica opcional (URL pública en R2).
+    foto_url = Column(String(500))
     created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())
@@ -349,6 +353,9 @@ class ActividadPlanta(Base):
     estado = Column(_estado(), nullable=False, server_default=EstadoRegistro.activo.value)
     observaciones = Column(Text())
     evidencia = Column(String(255))
+    # Evidencia fotográfica opcional (URL pública en R2; `evidencia` sigue
+    # siendo la referencia textual libre: código de foto, folio, etc.).
+    foto_url = Column(String(500))
     created_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     updated_by = Column(Integer, ForeignKey("usuarios.id", ondelete="SET NULL"))
     created_at = Column(DateTime, nullable=False, server_default=func.now())

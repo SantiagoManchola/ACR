@@ -18,7 +18,7 @@ from ..schemas import (
     SuscriptorUpdate,
 )
 from ..security import get_current_user, get_db, require_role
-from ..services.common import sellar
+from ..services.common import sellar, validar_foto_url
 from ..services import micromedidores as svc_mm
 
 router = APIRouter(prefix="", tags=["Micromedidores"])
@@ -245,6 +245,7 @@ def crear_lectura(
         responsable_id=usuario.id,
         novedad=payload.novedad,
         irregular=payload.irregular,
+        foto_url=validar_foto_url(payload.foto_url),
     )
     sellar(lectura, usuario, nuevo=True)
     db.add(lectura)

@@ -9,6 +9,8 @@ import BaseModal from '../components/BaseModal.vue'
 import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import FotoEvidencia from '../components/FotoEvidencia.vue'
+import VisorFoto from '../components/VisorFoto.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
 
@@ -27,6 +29,17 @@ const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => 
 const userMap = computed(() => Object.fromEntries(usu.usuarios.map((u) => [u.id, u.nombre])))
 const userOptions = computed(() => usu.usuarios.map((u) => ({ value: u.id, label: u.nombre })))
 const paramOptions = computed(() => planta.parametros.map((p) => ({ value: p.id, label: p.nombre })))
+
+/* Visor de evidencias fotográficas (miniaturas en tablas -> foto grande) */
+const visorShow = ref(false)
+const visorSrc = ref('')
+const visorTitulo = ref('Evidencia')
+function verFoto(url, titulo = 'Evidencia') {
+  if (!url) return
+  visorSrc.value = url
+  visorTitulo.value = titulo
+  visorShow.value = true
+}
 
 /* Ubicación "Planta de tratamiento": los químicos de este módulo son SOLO los
    de esa sede (ni disponibilidad ni descuentos de otras ubicaciones). */
@@ -120,8 +133,9 @@ async function saveParam() {
 /* Mediciones */
 const showMed = ref(false)
 const medError = ref('')
-const emptyMed = () => ({ parametro_id: null, valor: '', accion_correctiva: '', observaciones: '' })
+const emptyMed = () => ({ parametro_id: null, valor: '', accion_correctiva: '', observaciones: '', foto_url: '' })
 const medForm = ref(emptyMed())
+const fotoMedRef = ref(null)
 const medCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
@@ -131,6 +145,7 @@ const medCols = [
   { key: 'unidad', label: 'Unidad' },
   { key: 'responsable', label: 'Responsable' },
   { key: 'fuera_rango', label: 'Estado' },
+  { key: 'foto', label: 'Foto' },
   { key: 'accion_correctiva', label: 'Acción correctiva' },
 ]
 /* Pestaña "Fuera de rango": estado ACTUAL por parámetro (última medición) */
@@ -148,6 +163,7 @@ function openNewMed() { medForm.value = emptyMed(); medError.value = ''; showMed
 async function saveMed() {
   medError.value = ''
   if (!medForm.value.parametro_id || medForm.value.valor === '') { medError.value = 'Parámetro y valor son obligatorios.'; return }
+  if (fotoMedRef.value?.ocupado()) { medError.value = 'Espera a que termine de subir la foto.'; return }
   saving.value = true
   try {
     await planta.createMedicion({
@@ -155,6 +171,7 @@ async function saveMed() {
       valor: Number(medForm.value.valor),
       accion_correctiva: medForm.value.accion_correctiva || null,
       observaciones: medForm.value.observaciones || null,
+      foto_url: medForm.value.foto_url || null,
     })
     showMed.value = false; await Promise.all([planta.loadMediciones(), planta.loadFueraRango()])
   } catch (e) { medError.value = apiError(e) } finally { saving.value = false }
@@ -295,8 +312,9 @@ function diaLabel(f) { const [y, m, d] = String(f).split('-'); return `${d}/${m}
 /* Actividades */
 const showAct = ref(false)
 const actError = ref('')
-const emptyAct = () => ({ tipo: '', responsable_id: null, observaciones: '', evidencia: '' })
+const emptyAct = () => ({ tipo: '', responsable_id: null, observaciones: '', evidencia: '', foto_url: '' })
 const actForm = ref(emptyAct())
+const fotoActRef = ref(null)
 const actCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
@@ -305,6 +323,7 @@ const actCols = [
   { key: 'estado', label: 'Estado' },
   { key: 'observaciones', label: 'Observaciones' },
   { key: 'evidencia', label: 'Evidencia' },
+  { key: 'foto', label: 'Foto' },
 ]
 const actTipos = ['Limpieza', 'Desinfección', 'Tanques', 'Bocatoma', 'Mantenimiento']
 const actTiposOptions = computed(() => actTipos.map((t) => ({ value: t, label: t })))
@@ -312,11 +331,13 @@ function openNewAct() { actForm.value = emptyAct(); actError.value = ''; showAct
 async function saveAct() {
   actError.value = ''
   if (!actForm.value.tipo) { actError.value = 'El tipo de actividad es obligatorio.'; return }
+  if (fotoActRef.value?.ocupado()) { actError.value = 'Espera a que termine de subir la foto.'; return }
   saving.value = true
   try {
     await planta.createActividad({
       ...actForm.value,
       responsable_id: actForm.value.responsable_id ? Number(actForm.value.responsable_id) : null,
+      foto_url: actForm.value.foto_url || null,
     })
     showAct.value = false; await planta.loadActividades()
   } catch (e) { actError.value = apiError(e) } finally { saving.value = false }
@@ -426,6 +447,11 @@ watch(tab, (t) => {
           <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
           <span v-else-if="col.key === 'unidad'">{{ paramMap[row.parametro_id]?.unidad || '—' }}</span>
           <span v-else-if="col.key === 'fuera_rango'"><span class="badge" :class="row.fuera_rango ? 'badge-bad' : 'badge-ok'">{{ row.fuera_rango ? 'Fuera de rango' : 'En rango' }}</span></span>
+          <span v-else-if="col.key === 'foto'">
+            <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
+              @click="verFoto(row.foto_url, `${paramMap[row.parametro_id]?.nombre || 'Medición'} · ${row.fecha}`)" />
+            <span v-else class="muted">—</span>
+          </span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -544,6 +570,11 @@ watch(tab, (t) => {
           <span v-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
           <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
           <span v-else-if="col.key === 'tipo'" style="text-transform:capitalize">{{ row.tipo }}</span>
+          <span v-else-if="col.key === 'foto'">
+            <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
+              @click="verFoto(row.foto_url, `${row.tipo} · ${row.fecha}`)" />
+            <span v-else class="muted">—</span>
+          </span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -616,6 +647,7 @@ watch(tab, (t) => {
       </div>
       <div class="field"><label>Acción correctiva</label><input class="input" v-model="medForm.accion_correctiva" placeholder="Qué se hizo ante un valor fuera de rango" /></div>
       <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="medForm.observaciones"></textarea></div>
+      <FotoEvidencia ref="fotoMedRef" v-model="medForm.foto_url" modulo="medicion" />
       <template #footer>
         <button class="btn btn-ghost" @click="showMed = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveMed">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
@@ -672,6 +704,7 @@ watch(tab, (t) => {
       </div>
       <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="actForm.observaciones"></textarea></div>
       <div class="field"><label>Evidencia (referencia)</label><input class="input" v-model="actForm.evidencia" placeholder="Ej. código de foto, folio" /></div>
+      <FotoEvidencia ref="fotoActRef" v-model="actForm.foto_url" modulo="actividad" />
       <template #footer>
         <button class="btn btn-ghost" @click="showAct = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveAct">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
@@ -693,6 +726,8 @@ watch(tab, (t) => {
         <button class="btn btn-primary" :disabled="saving" @click="saveHora">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
       </template>
     </BaseModal>
+
+    <VisorFoto v-model:show="visorShow" :src="visorSrc" :titulo="visorTitulo" />
   </div>
 </template>
 
@@ -719,4 +754,7 @@ watch(tab, (t) => {
   min-height: 2px; transition: height .2s;
 }
 .chart-label { font-size: .68rem; color: var(--acr-texto-suave); white-space: nowrap; }
+/* Miniaturas de evidencias en tablas */
+.mini-foto { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--acr-borde); cursor: zoom-in; }
+.mini-foto:hover { border-color: var(--acr-azul); }
 </style>

@@ -152,9 +152,10 @@ def reporte_micromedidores(
     sus_map = {s.id: s.nombre for s in db.execute(select(models.Suscriptor)).scalars().all()}
     datos = [{"fecha": l.fecha, "suscriptor": sus_map.get(l.suscriptor_id, l.suscriptor_id),
               "micromedidor_id": l.micromedidor_id, "lectura": l.lectura, "consumo": l.consumo,
-              "promedio_usado": l.promedio_usado, "irregular": l.irregular, "novedad": l.novedad or ""}
+              "promedio_usado": l.promedio_usado, "irregular": l.irregular, "novedad": l.novedad or "",
+              "foto_url": l.foto_url or ""}
              for l in filas]
-    columnas = ["fecha", "suscriptor", "micromedidor_id", "lectura", "consumo", "promedio_usado", "irregular", "novedad"]
+    columnas = ["fecha", "suscriptor", "micromedidor_id", "lectura", "consumo", "promedio_usado", "irregular", "novedad", "foto_url"]
     return _responder(datos, columnas, formato, "reporte_consumo", "Consumo micromedidores ACR")
 
 
@@ -193,8 +194,8 @@ def reporte_planta(
         usuario_map = {u.id: u.nombre for u in db.execute(select(models.Usuario)).scalars().all()}
         datos = [{"id": a.id, "tipo": a.tipo, "fecha": a.fecha, "hora": a.hora,
                   "responsable": usuario_map.get(a.responsable_id, "—"),
-                  "observaciones": a.observaciones or ""} for a in filas]
-        columnas = ["id", "tipo", "fecha", "hora", "responsable", "observaciones"]
+                  "observaciones": a.observaciones or "", "foto_url": a.foto_url or ""} for a in filas]
+        columnas = ["id", "tipo", "fecha", "hora", "responsable", "observaciones", "foto_url"]
         return _responder(datos, columnas, formato, "reporte_actividades", "Actividades Planta ACR")
 
     if tipo == "dosificaciones":
@@ -223,6 +224,6 @@ def reporte_planta(
     param_map = {p.id: p.nombre for p in db.execute(select(models.ParametroPlanta)).scalars().all()}
     datos = [{"id": m.id, "fecha": m.fecha, "parametro": param_map.get(m.parametro_id, m.parametro_id),
               "valor": m.valor, "fuera_rango": m.fuera_rango,
-              "accion_correctiva": m.accion_correctiva or ""} for m in filas]
-    columnas = ["id", "fecha", "parametro", "valor", "fuera_rango", "accion_correctiva"]
+              "accion_correctiva": m.accion_correctiva or "", "foto_url": m.foto_url or ""} for m in filas]
+    columnas = ["id", "fecha", "parametro", "valor", "fuera_rango", "accion_correctiva", "foto_url"]
     return _responder(datos, columnas, formato, "reporte_planta", "Planta de tratamiento ACR")

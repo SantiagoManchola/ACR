@@ -95,3 +95,60 @@ api/
   `POST /planta/actividades`, `POST /planta/horas-servicio`.
 - **Reportes:** `GET /reportes/inventario`, `/reportes/consumo`,
   `/reportes/planta` con `?formato=csv|xlsx|pdf` (sin formato = JSON).
+- **Evidencias:** `POST /evidencias/presign` (firma subida PUT directa a R2),
+  `POST /evidencias/confirmar` (verifica tamaño; borra si excede 8 MB).
+
+## Evidencias fotográficas (Cloudflare R2)
+
+Mediciones de parámetros, lecturas de micromedidores y actividades aceptan
+`foto_url` **opcional**. El navegador comprime la foto (WebP, máx 1600px) y la
+sube **directo a R2 con URL firmada PUT**; el API solo guarda la URL pública.
+
+> R2 **NO soporta subidas POST** (presigned POST / formularios HTML): responde
+> `501 Not Implemented`. Por eso el flujo usa PUT firmado, que sí está
+> soportado. Si ves un 501 contra `*.r2.cloudflarestorage.com` con método
+> POST, es esto: actualiza el CMS (`cms/src/api/evidencias.js` ya usa PUT).
+
+### 1. Migración de BD
+
+```bash
+mysql -u acr_user -p acr < ../datamodel/migrations/acr_migrations_006_foto_url.sql
+```
+
+### 2. Crear el bucket en Cloudflare
+
+1. Dashboard Cloudflare → **R2** → *Create bucket* (ej. `acr-evidencias`).
+2. En el bucket → **Settings** → *Public access* → **Allow Access**
+   (o conecta un dominio propio en *Custom Domains*). Anota la URL pública,
+   ej. `https://pub-xxx.r2.dev`.
+3. **CORS** del bucket (obligatorio para subir desde la plataforma web).
+   Debe permitir **PUT** (no POST) y el header `Content-Type` explícito
+   (R2 rechaza el comodín `"*"` en `AllowedHeaders`):
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://tu-plataforma.com", "http://localhost:5173"],
+    "AllowedMethods": ["GET", "PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+4. **Manage R2 API Tokens** → crea un token con permiso *Object Read & Write*
+   sobre ese bucket. Anota `Access Key ID` y `Secret Access Key`.
+
+### 3. Variables en `api/.env`
+
+```bash
+R2_ACCOUNT_ID=tu_account_id
+R2_ACCESS_KEY_ID=tu_access_key
+R2_SECRET_ACCESS_KEY=tu_secret
+R2_BUCKET=acr-evidencias
+R2_PUBLIC_BASE_URL=https://pub-xxx.r2.dev
+```
+
+Sin estas variables, `POST /evidencias/presign` responde `501` y los registros
+se guardan sin foto (la foto es opcional en los 3 puntos).

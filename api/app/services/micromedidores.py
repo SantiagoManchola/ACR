@@ -212,7 +212,19 @@ def historial_micromedidor(db: Session, mid: int):
         select(models.Lectura).where(models.Lectura.micromedidor_id == mid)
         .order_by(models.Lectura.fecha.desc(), models.Lectura.hora.desc())
     ).scalars().all()
+    # Promedio histórico validado: misma regla que usa la estimación
+    # (promedio de los consumos de las últimas 6 lecturas con consumo).
+    promedio = _promedio_historico(db, mid)
+    consumos_validos = db.execute(
+        select(func.count(models.Lectura.id)).where(
+            models.Lectura.micromedidor_id == mid,
+            models.Lectura.consumo.isnot(None),
+        )
+    ).scalar() or 0
     return {
         "micromedidor": micromedidor,
         "lecturas": lecturas,
+        "promedio_historico": float(promedio) if promedio is not None else None,
+        "promedio_base_n": min(int(consumos_validos or 0), 6),
+        "promedio_total_lecturas": int(consumos_validos or 0),
     }

@@ -8,6 +8,8 @@ import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import FotoEvidencia from '../components/FotoEvidencia.vue'
+import VisorFoto from '../components/VisorFoto.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 
@@ -95,15 +97,18 @@ async function generarReporte(tipo) {
 /* ---------------- Detalle ---------------- */
 const showDetail = ref(false)
 const detailSusMmId = ref(null)
+// Pestaña dentro del detalle del micromedidor: lecturas | grafico
+const detailTab = ref('lecturas')
 function openDetailSus(r) {
   detailSusMmId.value = null
+  detailTab.value = 'lecturas'
   return mm.loadHistorialSuscriptor(r.id).then(() => {
     const meds = mm.historial?.micromedidores || []
     if (meds.length === 1) detailSusMmId.value = meds[0].id
     showDetail.value = true
   })
 }
-function openDetailMm(r) { mm.loadHistorialMicromedidor(r.id); showDetail.value = true }
+function openDetailMm(r) { detailTab.value = 'lecturas'; mm.loadHistorialMicromedidor(r.id); showDetail.value = true }
 
 /* ---------------- Suscriptores ---------------- */
 const showSus = ref(false)
@@ -175,11 +180,23 @@ async function reactivarMm(r) {
   await mm.loadMicromedidores()
 }
 
+/* Visor de evidencias fotográficas (miniaturas en tablas -> foto grande) */
+const visorShow = ref(false)
+const visorSrc = ref('')
+const visorTitulo = ref('Evidencia')
+function verFoto(url, titulo = 'Evidencia') {
+  if (!url) return
+  visorSrc.value = url
+  visorTitulo.value = titulo
+  visorShow.value = true
+}
+
 /* ---------------- Lecturas ---------------- */
 const showLec = ref(false)
 const lecError = ref('')
-const emptyLec = () => ({ micromedidor_id: null, suscriptor_id: null, lectura: '', estimada: false, novedad: '', irregular: false })
+const emptyLec = () => ({ micromedidor_id: null, suscriptor_id: null, lectura: '', estimada: false, novedad: '', irregular: false, foto_url: '' })
 const lecForm = ref(emptyLec())
+const fotoLecRef = ref(null)
 
 const lecCols = [
   { key: 'fecha', label: 'Fecha' },
@@ -189,6 +206,7 @@ const lecCols = [
   { key: 'lectura', label: 'Lectura', align: 'right' },
   { key: 'consumo', label: 'Consumo', align: 'right' },
   { key: 'tipo', label: 'Tipo' },
+  { key: 'foto', label: 'Foto' },
   { key: 'novedad', label: 'Novedad' },
 ]
 const detailLecCols = [
@@ -197,6 +215,7 @@ const detailLecCols = [
   { key: 'lectura', label: 'Lectura', align: 'right', num: true },
   { key: 'consumo', label: 'Consumo', align: 'right', num: true },
   { key: 'tipo', label: 'Tipo' },
+  { key: 'foto', label: 'Foto' },
   { key: 'novedad', label: 'Novedad' },
 ]
 const detailIsSus = computed(() => !!mm.historial && !!mm.historial.suscriptor)
@@ -210,6 +229,81 @@ const detailLecturas = computed(() => {
   const lecturas = mm.historial?.lecturas || []
   if (detailIsSus.value) return lecturas.filter((l) => l.micromedidor_id === detailSusMmId.value)
   return lecturas
+})
+
+/* -------- Promedio histórico de consumo (validado, misma regla del backend) ----
+   Regla: promedio de los consumos de las ÚLTIMAS 6 lecturas con consumo no nulo.
+   Se prefiere el valor calculado por el backend (historial.promedio_historico);
+   si no viene (historial de suscriptor o backend anterior) se calcula en cliente. */
+function calcularPromedioLocal(lecturas) {
+  const consumos = (lecturas || [])
+    .slice()
+    .sort((a, b) => {
+      const f = String(a.fecha).localeCompare(String(b.fecha))
+      if (f !== 0) return f
+      const h = String(a.hora || '').localeCompare(String(b.hora || ''))
+      if (h !== 0) return h
+      return Number(a.id || 0) - Number(b.id || 0)
+    })
+    .map((l) => (l.consumo === null || l.consumo === undefined || l.consumo === '' ? null : Number(l.consumo)))
+    .filter((c) => c !== null && !Number.isNaN(c))
+    .slice(-6)
+  if (!consumos.length) return { promedio: null, base: 0 }
+  const suma = consumos.reduce((t, c) => t + c, 0)
+  return { promedio: suma / consumos.length, base: consumos.length }
+}
+const promedioLocal = computed(() => calcularPromedioLocal(detailIsSus.value ? detailLecturas.value : (mm.historial?.lecturas || [])))
+const promedioHistorico = computed(() => {
+  const back = mm.historial?.promedio_historico
+  if (back !== null && back !== undefined && back !== '' && !Number.isNaN(Number(back))) return Number(back)
+  return promedioLocal.value.promedio
+})
+const promedioBaseN = computed(() => {
+  const back = mm.historial?.promedio_base_n
+  if (back !== null && back !== undefined && back !== '') return Number(back)
+  return promedioLocal.value.base
+})
+const promedioTexto = computed(() => (
+  promedioHistorico.value === null || promedioHistorico.value === undefined
+    ? '— (sin consumos históricos)'
+    : `${fmtNum(promedioHistorico.value)} m³ (últimas ${promedioBaseN.value} lectura(s))`
+))
+
+/* -------- Gráfico: últimas 6 mediciones (consumo en m³) -------- */
+const ultimas6 = computed(() => {
+  const lecturas = detailIsSus.value ? detailLecturas.value : (mm.historial?.lecturas || [])
+  return lecturas
+    .slice()
+    .sort((a, b) => {
+      const f = String(a.fecha).localeCompare(String(b.fecha))
+      if (f !== 0) return f
+      const h = String(a.hora || '').localeCompare(String(b.hora || ''))
+      if (h !== 0) return h
+      return Number(a.id || 0) - Number(b.id || 0)
+    })
+    .slice(-6)
+    .map((l) => ({
+      ...l,
+      consumoNum: l.consumo === null || l.consumo === undefined || l.consumo === '' ? null : Number(l.consumo),
+      mesCorto: (MESES.find((m) => m.v === Number(String(l.fecha).slice(5, 7)))?.label || '—').slice(0, 3),
+    }))
+})
+const maxConsumoChart = computed(() => {
+  const vals = ultimas6.value.map((l) => l.consumoNum).filter((c) => c !== null && !Number.isNaN(c))
+  return vals.length ? Math.max(...vals, 0) : 0
+})
+function alturaBarra(consumo) {
+  if (consumo === null || consumo === undefined || Number.isNaN(consumo)) return 2
+  if (!maxConsumoChart.value) return 2
+  const pct = (Number(consumo) / maxConsumoChart.value) * 100
+  return Math.max(4, Math.min(100, pct))
+}
+const totalUltimas6 = computed(() => ultimas6.value.reduce((t, l) => t + (l.consumoNum || 0), 0))
+const chartPeriodo = computed(() => {
+  if (!ultimas6.value.length) return '—'
+  const ini = ultimas6.value[0].fecha
+  const fin = ultimas6.value[ultimas6.value.length - 1].fecha
+  return ini === fin ? String(ini) : `${ini} – ${fin}`
 })
 
 /* ---------------- Impresión de mediciones ---------------- */
@@ -266,6 +360,11 @@ function abrirPrint() {
   }
   showPrint.value = true
 }
+/* Impresión del gráfico de últimas 6 mediciones: mismo mecanismo (window.print),
+   con su propia área de impresión. Solo un modal de impresión vive a la vez,
+   así que el CSS @media print existente la captura sin cambios. */
+const showPrintChart = ref(false)
+function abrirPrintChart() { showPrintChart.value = true }
 function imprimir() { window.print() }
 function onPickMedidor(val) {
   const id = val ?? lecForm.value.micromedidor_id
@@ -295,6 +394,7 @@ async function saveLec() {
   lecError.value = ''
   if (!lecForm.value.micromedidor_id || !lecForm.value.suscriptor_id) { lecError.value = 'Medidor y suscriptor son obligatorios.'; return }
   if (!lecForm.value.estimada && lecForm.value.lectura === '') { lecError.value = 'Ingrese el valor del medidor o marque la lectura como estimada.'; return }
+  if (fotoLecRef.value?.ocupado()) { lecError.value = 'Espera a que termine de subir la foto.'; return }
   saving.value = true
   try {
     const payload = {
@@ -303,6 +403,7 @@ async function saveLec() {
       novedad: lecForm.value.novedad || null,
       // Estimada: sin valor de medidor; el backend lo calcula (previa + promedio)
       irregular: !!lecForm.value.estimada,
+      foto_url: lecForm.value.foto_url || null,
     }
     if (!lecForm.value.estimada) payload.lectura = Number(lecForm.value.lectura)
     await mm.createLectura(payload)
@@ -442,6 +543,11 @@ onMounted(async () => {
           <span v-if="col.key === 'suscriptor'">{{ susMap[row.suscriptor_id] || row.suscriptor_id }}</span>
           <span v-else-if="col.key === 'micromedidor_id'">{{ mmMap[row.micromedidor_id] || row.micromedidor_id }}</span>
           <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'" :title="row.promedio_usado ? 'Consumo estimado con el promedio histórico (no fue posible tomar la medición)' : 'Medición física del medidor'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
+          <span v-else-if="col.key === 'foto'">
+            <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
+              @click="verFoto(row.foto_url, `${mmMap[row.micromedidor_id] || 'Medidor'} · ${row.fecha}`)" />
+            <span v-else class="muted">—</span>
+          </span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
       </DataTable>
@@ -524,6 +630,7 @@ onMounted(async () => {
         <label>Novedad</label>
         <textarea class="textarea" v-model="lecForm.novedad" placeholder="Observación o novedad de la lectura"></textarea>
       </div>
+      <FotoEvidencia ref="fotoLecRef" v-model="lecForm.foto_url" modulo="lectura" />
       <template #footer>
         <button class="btn btn-ghost" @click="showLec = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveLec">{{ saving ? 'Guardando…' : 'Guardar lectura' }}</button>
@@ -573,6 +680,11 @@ onMounted(async () => {
             <template #cell="{ row, col }">
               <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key]) }}</span>
               <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
+              <span v-else-if="col.key === 'foto'">
+                <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
+                  @click="verFoto(row.foto_url, `Lectura · ${row.fecha}`)" />
+                <span v-else class="muted">—</span>
+              </span>
               <span v-else>{{ row[col.key] ?? '—' }}</span>
             </template>
           </DataTable>
@@ -581,17 +693,83 @@ onMounted(async () => {
       </template>
 
       <template v-else>
-        <div class="mt-2" style="display:flex; align-items:center; justify-content:space-between; gap:1rem">
-          <h3>Lecturas</h3>
-          <button class="btn btn-ghost btn-sm" @click="abrirPrint"><AppIcon name="report" :size="16" />Imprimir mediciones</button>
+        <div class="mt-2" style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap">
+          <div class="tabs" style="border-bottom:none; margin-bottom:0">
+            <button :class="{ active: detailTab === 'lecturas' }" @click="detailTab = 'lecturas'"><AppIcon name="edit" :size="15" />Lecturas</button>
+            <button :class="{ active: detailTab === 'grafico' }" @click="detailTab = 'grafico'"><AppIcon name="report" :size="15" />Gráfico últimas 6</button>
+          </div>
+          <div style="display:flex; gap:.5rem">
+            <button v-if="detailTab === 'lecturas'" class="btn btn-ghost btn-sm" @click="abrirPrint"><AppIcon name="report" :size="16" />Imprimir mediciones</button>
+            <button v-else class="btn btn-ghost btn-sm" @click="abrirPrintChart"><AppIcon name="report" :size="16" />Imprimir gráfico</button>
+          </div>
         </div>
-        <DataTable :columns="detailLecCols" :rows="detailLecturas" empty-text="Sin lecturas registradas.">
-          <template #cell="{ row, col }">
-            <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key]) }}</span>
-            <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
-            <span v-else>{{ row[col.key] ?? '—' }}</span>
-          </template>
-        </DataTable>
+
+        <div v-if="detailTab === 'lecturas'">
+          <p class="muted mb-1" style="font-size:.82rem">Promedio histórico de consumo: <strong>{{ promedioTexto }}</strong></p>
+          <DataTable :columns="detailLecCols" :rows="detailLecturas" empty-text="Sin lecturas registradas.">
+            <template #cell="{ row, col }">
+              <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key]) }}</span>
+              <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
+              <span v-else-if="col.key === 'foto'">
+                <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
+                  @click="verFoto(row.foto_url, `Lectura · ${row.fecha}`)" />
+                <span v-else class="muted">—</span>
+              </span>
+              <span v-else>{{ row[col.key] ?? '—' }}</span>
+            </template>
+          </DataTable>
+        </div>
+
+        <div v-else>
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <h3 style="margin:0">Consumo — últimas 6 mediciones</h3>
+                <p class="muted" style="margin:.15rem 0 0; font-size:.8rem">{{ chartPeriodo }} · Total: {{ fmtNum(totalUltimas6) }} m³</p>
+              </div>
+              <span class="badge badge-info">Prom. {{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) + ' m³' }}</span>
+            </div>
+            <div v-if="ultimas6.length" class="chart-body">
+              <div class="chart-plot">
+                <div class="chart-tracks-row">
+                  <div
+                    v-if="promedioHistorico !== null && promedioHistorico !== undefined && maxConsumoChart"
+                    class="chart-avg"
+                    :style="{ bottom: `${Math.max(0, Math.min(100, (Number(promedioHistorico) / maxConsumoChart) * 100))}%` }"
+                    :title="`Promedio histórico: ${fmtNum(promedioHistorico)} m³`"
+                  >
+                    <span class="chart-avg-label">Prom. {{ fmtNum(promedioHistorico) }}</span>
+                  </div>
+                  <div v-for="l in ultimas6" :key="l.id" class="track-col">
+                    <span class="bar-value">{{ l.consumoNum === null ? '—' : fmtNum(l.consumoNum) }}</span>
+                    <div class="bar-track">
+                      <div
+                        class="bar-fill"
+                        :class="l.promedio_usado ? 'is-est' : 'is-fis'"
+                        :style="{ height: alturaBarra(l.consumoNum) + '%' }"
+                        :title="`${l.fecha} · Consumo ${l.consumoNum === null ? '—' : fmtNum(l.consumoNum) + ' m³'} (${l.promedio_usado ? 'estimada' : 'física'})`"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="chart-labels-row">
+                  <div v-for="l in ultimas6" :key="'lbl-' + l.id" class="label-col">
+                    <span class="bar-mes">{{ l.mesCorto }}</span>
+                    <span class="bar-fecha">{{ String(l.fecha).slice(5) }}</span>
+                    <span class="bar-flag" :class="l.promedio_usado ? 'badge badge-info' : 'bar-flag-empty'">{{ l.promedio_usado ? 'Est.' : '' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-legend">
+                <span class="lg"><i class="sw sw-fis"></i>Física</span>
+                <span class="lg"><i class="sw sw-est"></i>Estimada (promedio)</span>
+                <span class="lg"><i class="sw sw-avg"></i>Promedio histórico</span>
+              </div>
+              <p class="hint">Barras = consumo en m³ de cada medición ({{ chartPeriodo }}). La línea punteada es el promedio histórico validado ({{ promedioTexto }}).</p>
+            </div>
+            <p v-else class="muted mt-2">Sin lecturas para graficar.</p>
+          </div>
+        </div>
       </template>
     </BaseModal>
 
@@ -608,7 +786,7 @@ onMounted(async () => {
           <SearchableSelect v-model="printForm.mes_fin" :options="mesesOptions" placeholder="Diciembre" clearable />
         </div>
       </div>
-      <p class="muted" style="margin:0 0 .75rem">{{ printRows.length }} lectura(s) en el periodo {{ printPeriodo }} · Consumo total: {{ fmtNum(printTotal) }} m³</p>
+      <p class="muted" style="margin:0 0 .75rem">{{ printRows.length }} lectura(s) en el periodo {{ printPeriodo }} · Consumo total: {{ fmtNum(printTotal) }} m³ · Promedio histórico: {{ promedioTexto }}</p>
 
       <div class="print-area">
         <div class="print-head">
@@ -619,6 +797,7 @@ onMounted(async () => {
           <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Tipo</th><td>{{ detailEntity?.tipo || '—' }}</td></tr>
           <tr><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td><th>Dirección</th><td>{{ detailEntity?.direccion || '—' }}</td></tr>
           <tr><th>Periodo</th><td>{{ printPeriodo }}</td><th>Condición</th><td style="text-transform:capitalize">{{ detailEntity?.condicion || 'bueno' }}</td></tr>
+          <tr><th>Promedio histórico</th><td colspan="3"><strong>{{ promedioHistorico === null || promedioHistorico === undefined ? '— (sin consumos históricos)' : fmtNum(promedioHistorico) + ' m³' }}</strong> — promedio validado de los consumos de las últimas {{ promedioBaseN }} lectura(s) con consumo</td></tr>
         </table>
         <table class="print-table">
           <thead>
@@ -640,6 +819,11 @@ onMounted(async () => {
               <th style="text-align:right">{{ fmtNum(printTotal) }}</th>
               <th></th>
             </tr>
+            <tr>
+              <th colspan="3" style="text-align:right">Promedio histórico de consumo</th>
+              <th style="text-align:right">{{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) }}</th>
+              <th style="font-weight:400; font-size:.75rem">m³ · base {{ promedioBaseN }} lectura(s)</th>
+            </tr>
           </tfoot>
         </table>
         <div class="print-foot">
@@ -653,12 +837,79 @@ onMounted(async () => {
       </template>
     </BaseModal>
 
+    <!-- MODAL IMPRIMIR GRÁFICO (últimas 6 mediciones) -->
+    <BaseModal v-model="showPrintChart" title="Imprimir gráfico — últimas 6 mediciones" size="640">
+      <p class="muted" style="margin:0 0 .75rem">{{ ultimas6.length }} medición(es) · {{ chartPeriodo }} · Total: {{ fmtNum(totalUltimas6) }} m³ · Promedio: {{ promedioTexto }}</p>
+      <div class="print-area">
+        <div class="print-head">
+          <h2 style="margin:0">ACR — Acueducto Comunitario Acuaricaurte</h2>
+          <p style="margin:.25rem 0 0">Consumo — últimas 6 mediciones del micromedidor</p>
+        </div>
+        <table class="print-meta">
+          <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td></tr>
+          <tr><th>Periodo graficado</th><td>{{ chartPeriodo }}</td><th>Promedio histórico</th><td><strong>{{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) + ' m³' }}</strong> (base {{ promedioBaseN }})</td></tr>
+        </table>
+        <div class="chart-print-bars">
+          <div v-for="l in ultimas6" :key="l.id" class="chart-print-col">
+            <span class="chart-print-val">{{ l.consumoNum === null ? '—' : fmtNum(l.consumoNum) }}</span>
+            <div class="chart-print-track">
+              <div
+                class="chart-print-fill"
+                :class="l.promedio_usado ? 'is-est' : 'is-fis'"
+                :style="{ height: alturaBarra(l.consumoNum) + '%' }"
+              ></div>
+            </div>
+            <span class="chart-print-mes">{{ l.mesCorto }} {{ String(l.fecha).slice(2, 7) }}</span>
+            <span class="chart-print-tipo">{{ l.promedio_usado ? 'Est.' : 'Fís.' }}</span>
+          </div>
+          <p v-if="!ultimas6.length" class="muted">Sin lecturas para graficar.</p>
+        </div>
+        <table class="print-table">
+          <thead>
+            <tr><th>Fecha</th><th>Lectura (m³)</th><th>Consumo (m³)</th><th>Tipo</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="l in ultimas6" :key="l.id">
+              <td>{{ l.fecha }}</td>
+              <td style="text-align:right">{{ fmtNum(l.lectura) }}</td>
+              <td style="text-align:right">{{ l.consumoNum === null ? '—' : fmtNum(l.consumoNum) }}</td>
+              <td>{{ l.promedio_usado ? 'Estimada' : 'Física' }}</td>
+            </tr>
+            <tr v-if="!ultimas6.length"><td colspan="4" style="text-align:center">Sin lecturas.</td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th style="text-align:right">Total 6 mediciones</th>
+              <th></th>
+              <th style="text-align:right">{{ fmtNum(totalUltimas6) }}</th>
+              <th></th>
+            </tr>
+            <tr>
+              <th style="text-align:right">Promedio histórico</th>
+              <th></th>
+              <th style="text-align:right">{{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) }}</th>
+              <th style="font-weight:400; font-size:.75rem">m³ · base {{ promedioBaseN }}</th>
+            </tr>
+          </tfoot>
+        </table>
+        <div class="print-foot">
+          <span>Impreso el {{ new Date().toLocaleDateString() }}</span>
+        </div>
+      </div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showPrintChart = false">Cerrar</button>
+        <button class="btn btn-primary" @click="imprimir"><AppIcon name="report" :size="16" />Imprimir</button>
+      </template>
+    </BaseModal>
+
     <ConfirmModal v-model:show="confirmShow" :title="confirmTitle" :message="confirmMsg" confirm-text="Sí, inactivar" danger @confirm="doDel" />
+
+    <VisorFoto v-model:show="visorShow" :src="visorSrc" :titulo="visorTitulo" />
   </div>
 </template>
 
 <style>
-/* Impresión: solo se imprime el área de mediciones */
+/* Impresión: solo se imprime el área de mediciones / gráfico */
 @media print {
   body * { visibility: hidden !important; }
   .print-area, .print-area * { visibility: visible !important; }
@@ -678,6 +929,22 @@ onMounted(async () => {
   .print-table thead th { background: #2160AD; color: #fff; }
   .print-table tfoot th { background: #EEF2FB; }
   .print-foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 2rem; font-size: .8rem; }
+  .chart-print-bars {
+    display: flex; align-items: flex-end; gap: .6rem;
+    border: 1px solid #999; border-radius: 6px; padding: .8rem .8rem .6rem; margin-bottom: 1rem;
+  }
+  .chart-print-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+  .chart-print-val { font-size: .75rem; font-weight: 700; }
+  .chart-print-track {
+    width: 100%; max-width: 56px; height: 140px;
+    border: 1px solid #999; border-radius: 4px 4px 0 0;
+    display: flex; align-items: flex-end; background: #fff;
+  }
+  .chart-print-fill { width: 100%; border-radius: 3px 3px 0 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .chart-print-fill.is-fis { background: #2160AD; }
+  .chart-print-fill.is-est { background: #E0A106; }
+  .chart-print-mes { font-size: .7rem; font-weight: 600; }
+  .chart-print-tipo { font-size: .68rem; color: #444; }
 }
 </style>
 
@@ -692,4 +959,75 @@ onMounted(async () => {
 .print-table thead th { background: var(--acr-azul); color: #fff; }
 .print-table tfoot th { background: var(--acr-azul-50); }
 .print-foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 2rem; font-size: .8rem; }
+
+/* Gráfico últimas 6 mediciones */
+.chart-card {
+  background: linear-gradient(180deg, var(--acr-azul-50) 0%, #fff 42%);
+  border: 1px solid var(--acr-borde); border-radius: 12px; padding: 1rem 1.1rem;
+  box-shadow: var(--acr-sombra-sm); margin-top: .75rem;
+}
+.chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.chart-body { margin-top: .4rem; }
+.chart-plot { position: relative; padding-top: 1.5rem; }
+.chart-tracks-row { position: relative; display: flex; align-items: flex-end; gap: .7rem; height: 200px; border-bottom: 2px solid var(--acr-borde); padding-bottom: 0; }
+.track-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: .25rem; height: 100%; min-width: 0; }
+.chart-labels-row { display: flex; gap: .7rem; padding-top: .45rem; }
+.label-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .15rem; min-width: 0; }
+.bar-flag { font-size: .65rem; padding: .05rem .45rem; min-height: 1.05rem; line-height: 1; }
+.bar-flag-empty { min-height: 1.05rem; }
+.chart-avg {
+  position: absolute; left: 0; right: 0; height: 0;
+  border-top: 2px dashed var(--acr-bad); z-index: 2; pointer-events: none;
+}
+.chart-avg-label {
+  position: absolute; right: 0; top: -1.35rem;
+  background: var(--acr-bad-bg); color: var(--acr-bad);
+  font-size: .7rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px;
+  border: 1px solid #f1c2c2; white-space: nowrap;
+}
+.chart-bars { display: flex; align-items: flex-end; gap: .7rem; min-height: 210px; border-bottom: 2px solid var(--acr-borde); padding-bottom: .5rem; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .25rem; min-width: 0; }
+.bar-value { font-size: .8rem; font-weight: 800; color: var(--acr-azul-700); font-variant-numeric: tabular-nums; }
+.bar-track {
+  width: 100%; max-width: 64px; height: 160px;
+  background: #EEF3FA; border: 1px solid var(--acr-borde); border-radius: 8px 8px 4px 4px;
+  display: flex; align-items: flex-end; overflow: hidden;
+}
+.bar-fill { width: 100%; border-radius: 7px 7px 0 0; transition: height .3s; }
+.bar-fill.is-fis { background: linear-gradient(180deg, #3A7BD0 0%, var(--acr-azul) 100%); }
+.bar-fill.is-est {
+  background: repeating-linear-gradient(135deg, #E0A106 0 8px, #C78F05 8px 16px);
+}
+.bar-mes { font-size: .75rem; font-weight: 700; text-transform: capitalize; }
+.bar-fecha { font-size: .7rem; color: var(--acr-texto-suave); font-variant-numeric: tabular-nums; }
+.bar-flag { font-size: .65rem; padding: .05rem .45rem; }
+.chart-legend { display: flex; gap: 1rem; flex-wrap: wrap; margin: .7rem 0 .3rem; font-size: .78rem; color: var(--acr-texto-suave); }
+.chart-legend .lg { display: inline-flex; align-items: center; gap: .35rem; }
+.chart-legend .sw { width: 14px; height: 10px; border-radius: 3px; display: inline-block; }
+.sw-fis { background: var(--acr-azul); }
+.sw-est { background: repeating-linear-gradient(135deg, #E0A106 0 4px, #C78F05 4px 8px); border: 1px solid #C78F05; }
+.sw-avg { height: 0 !important; width: 18px !important; border-top: 2px dashed var(--acr-bad); border-radius: 0 !important; }
+.chart-card .hint { font-size: .72rem; color: var(--acr-texto-suave); margin: .3rem 0 0; }
+
+/* Vista previa del gráfico dentro del modal de impresión */
+.chart-print-bars {
+  display: flex; align-items: flex-end; gap: .6rem;
+  border: 1px solid var(--acr-borde); border-radius: 8px; padding: .8rem .8rem .6rem; margin-bottom: 1rem;
+  background: #FBFDFF;
+}
+.chart-print-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+.chart-print-val { font-size: .75rem; font-weight: 700; color: var(--acr-azul-700); }
+.chart-print-track {
+  width: 100%; max-width: 56px; height: 140px;
+  border: 1px solid var(--acr-borde); border-radius: 6px 6px 3px 3px;
+  display: flex; align-items: flex-end; background: #EEF3FA; overflow: hidden;
+}
+.chart-print-fill { width: 100%; }
+.chart-print-fill.is-fis { background: var(--acr-azul); }
+.chart-print-fill.is-est { background: #E0A106; }
+.chart-print-mes { font-size: .7rem; font-weight: 600; }
+.chart-print-tipo { font-size: .68rem; color: var(--acr-texto-suave); }
+/* Miniaturas de evidencias en tablas */
+.mini-foto { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--acr-borde); cursor: zoom-in; }
+.mini-foto:hover { border-color: var(--acr-azul); }
 </style>

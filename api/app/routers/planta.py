@@ -22,7 +22,7 @@ from ..schemas import (
     TipoMovimiento,
 )
 from ..security import get_current_user, get_db, require_role
-from ..services.common import sellar
+from ..services.common import sellar, validar_foto_url
 from ..services import planta as svc_planta
 
 router = APIRouter(prefix="/planta", tags=["Planta de tratamiento"])
@@ -103,6 +103,7 @@ def crear_medicion(
         fuera_rango=fuera,
         accion_correctiva=payload.accion_correctiva,
         observaciones=payload.observaciones,
+        foto_url=validar_foto_url(payload.foto_url),
     )
     sellar(med, usuario, nuevo=True)
     db.add(med)
@@ -227,6 +228,7 @@ def crear_actividad(
         responsable_id=payload.responsable_id or usuario.id,
         observaciones=payload.observaciones,
         evidencia=payload.evidencia,
+        foto_url=validar_foto_url(payload.foto_url),
         estado=models.EstadoRegistro.activo,
     )
     sellar(a, usuario, nuevo=True)
@@ -258,7 +260,10 @@ def actualizar_actividad(
     a = db.get(models.ActividadPlanta, aid)
     if not a:
         raise HTTPException(404, "Actividad no encontrada")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    datos = payload.model_dump(exclude_unset=True)
+    if "foto_url" in datos:
+        datos["foto_url"] = validar_foto_url(datos["foto_url"])
+    for k, v in datos.items():
         setattr(a, k, v)
     sellar(a, usuario, nuevo=False)
     db.commit()

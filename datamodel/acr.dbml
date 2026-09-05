@@ -247,6 +247,7 @@ Table lecturas {
   responsable_id    integer [ref: > usuarios.id] // RF-27
   novedad           varchar(200) // RF-32 (obstrucción, acceso negado...)
   irregular         boolean [not null, default: false] // regla 3
+  foto_url          varchar(500) // evidencia fotográfica opcional (R2)
   created_by        integer [ref: > usuarios.id]
   updated_by        integer [ref: > usuarios.id]
   created_at        timestamptz [not null, default: `now()`]
@@ -287,6 +288,7 @@ Table mediciones {
   fuera_rango       boolean [not null, default: false] // RF-49
   accion_correctiva text // RF-50
   observaciones     text // RF-47
+  foto_url          varchar(500) // evidencia fotográfica opcional (R2)
   created_by        integer [ref: > usuarios.id]
   updated_by        integer [ref: > usuarios.id]
   created_at        timestamptz [not null, default: `now()`]
@@ -325,6 +327,7 @@ Table actividades_planta {
   estado            estado_registro [not null, default: 'activo']
   observaciones     text
   evidencia         varchar(255) // ruta de archivo/foto cuando aplique
+  foto_url          varchar(500) // evidencia fotográfica opcional (R2)
   created_by        integer [ref: > usuarios.id]
   updated_by        integer [ref: > usuarios.id]
   created_at        timestamptz [not null, default: `now()`]

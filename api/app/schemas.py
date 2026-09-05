@@ -298,6 +298,8 @@ class LecturaCreate(BaseModel):
     responsable_id: Optional[int] = None
     novedad: Optional[str] = None
     irregular: bool = False
+    # URL pública de la foto en R2 (opcional; se sube directo a R2 con /evidencias/presign).
+    foto_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class LecturaOut(_ORM):
@@ -312,6 +314,7 @@ class LecturaOut(_ORM):
     responsable_id: Optional[int] = None
     novedad: Optional[str] = None
     irregular: bool
+    foto_url: Optional[str] = None
 
 
 # ----------------------------- Planta ----------------------------------------
@@ -350,6 +353,8 @@ class MedicionCreate(BaseModel):
     responsable_id: Optional[int] = None
     accion_correctiva: Optional[str] = None
     observaciones: Optional[str] = None
+    # URL pública de la foto en R2 (opcional; se sube directo a R2 con /evidencias/presign).
+    foto_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class MedicionOut(_ORM):
@@ -362,6 +367,7 @@ class MedicionOut(_ORM):
     fuera_rango: bool
     accion_correctiva: Optional[str] = None
     observaciones: Optional[str] = None
+    foto_url: Optional[str] = None
 
 
 class DosificacionCreate(BaseModel):
@@ -412,6 +418,8 @@ class ActividadCreate(BaseModel):
     responsable_id: Optional[int] = None
     observaciones: Optional[str] = None
     evidencia: Optional[str] = None
+    # URL pública de la foto en R2 (opcional; se sube directo a R2 con /evidencias/presign).
+    foto_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class ActividadUpdate(BaseModel):
@@ -422,6 +430,7 @@ class ActividadUpdate(BaseModel):
     estado: Optional[EstadoRegistro] = None
     observaciones: Optional[str] = None
     evidencia: Optional[str] = None
+    foto_url: Optional[str] = Field(default=None, max_length=500)
 
 
 class ActividadOut(_ORM):
@@ -433,6 +442,7 @@ class ActividadOut(_ORM):
     estado: EstadoRegistro
     observaciones: Optional[str] = None
     evidencia: Optional[str] = None
+    foto_url: Optional[str] = None
 
 
 class HoraServicioCreate(BaseModel):
