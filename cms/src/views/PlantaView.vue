@@ -11,6 +11,7 @@ import AppIcon from '../components/AppIcon.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
+import GraficoHoras from '../components/GraficoHoras.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
 
@@ -329,18 +330,15 @@ const resumenDosis = computed(() => {
   })
 })
 
-/* ---------------- Horas: gráfico de barras por día ---------------- */
-const horasPorDia = computed(() => {
-  const map = {}
-  for (const h of planta.horas) map[h.fecha] = (map[h.fecha] || 0) + Number(h.horas || 0)
-  return Object.entries(map)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([fecha, horas]) => ({ fecha, horas }))
-})
-const horasTotal = computed(() => horasPorDia.value.reduce((t, d) => t + d.horas, 0))
-const horasMax = computed(() => Math.max(...horasPorDia.value.map((d) => d.horas), 0))
-function barHeight(h) { return `${(h / (horasMax.value || 1)) * 100}%` }
-function diaLabel(f) { const [y, m, d] = String(f).split('-'); return `${d}/${m}` }
+/* Gráfico de horas de servicio: componente reutilizable (también en el Dashboard).
+   Ver components/GraficoHoras.vue — anual → mes → semana, escala 0–24 en días. */
+const graficoHorasRef = ref(null)
+function filtrarTablaPorDia(fecha) {
+  // Día clickeado en el gráfico: filtra la tabla de abajo a esa fecha (Limpiar lo revierte).
+  horaFiltro.value = { fecha_inicio: fecha, fecha_fin: fecha }
+  filtrarHora()
+  document.querySelector('.report-bar')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 
 /* Actividades */
 const showAct = ref(false)
@@ -391,7 +389,7 @@ async function saveHora() {
   horaError.value = ''
   if (!horaForm.value.horas) { horaError.value = 'Ingrese las horas de servicio.'; return }
   saving.value = true
-  try { await planta.createHoraServicio({ fecha: horaForm.value.fecha || new Date().toISOString().slice(0, 10), horas: Number(horaForm.value.horas), responsable_id: horaForm.value.responsable_id ? Number(horaForm.value.responsable_id) : null, observaciones: horaForm.value.observaciones || null }); showHora.value = false; await planta.loadHoras() }
+  try { await planta.createHoraServicio({ fecha: horaForm.value.fecha || new Date().toISOString().slice(0, 10), horas: Number(horaForm.value.horas), responsable_id: horaForm.value.responsable_id ? Number(horaForm.value.responsable_id) : null, observaciones: horaForm.value.observaciones || null });     showHora.value = false; await planta.loadHoras(); graficoHorasRef.value?.recargar() }
   catch (e) { horaError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -630,19 +628,7 @@ watch(tab, (t) => {
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewHora"><AppIcon name="plus" />Registrar horas</button></div>
 
-      <div v-if="horasPorDia.length" class="chart-wrap">
-        <div class="chart-head">
-          <strong>Horas trabajadas por día</strong>
-          <span class="muted">Total del periodo: {{ fmtNum(horasTotal) }} h</span>
-        </div>
-        <div class="chart">
-          <div class="chart-col" v-for="d in horasPorDia" :key="d.fecha" :title="`${d.fecha}: ${d.horas} h`">
-            <span class="chart-val">{{ fmtNum(d.horas) }}</span>
-            <div class="chart-bar" :style="{ height: barHeight(d.horas) }"></div>
-            <span class="chart-label">{{ diaLabel(d.fecha) }}</span>
-          </div>
-        </div>
-      </div>
+      <GraficoHoras ref="graficoHorasRef" @click-dia="filtrarTablaPorDia" />
 
       <DataTable :columns="horaCols" :rows="planta.horas" :loading="planta.loading" empty-text="Sin horas de servicio registradas." />
       <div class="report-bar">
@@ -779,28 +765,6 @@ watch(tab, (t) => {
 </template>
 
 <style scoped>
-/* Gráfico de barras de horas de servicio (sin dependencias externas) */
-.chart-wrap {
-  background: #fff; border: 1px solid var(--acr-borde); border-radius: 10px;
-  padding: 1rem; margin-bottom: 1rem;
-}
-.chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: .75rem; }
-.chart {
-  display: flex; align-items: stretch; gap: 6px;
-  height: 200px; overflow-x: auto; padding-bottom: .25rem;
-}
-.chart-col {
-  flex: 1; min-width: 34px;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  gap: 2px;
-}
-.chart-val { font-size: .68rem; color: var(--acr-texto-suave); }
-.chart-bar {
-  width: 100%; max-width: 42px;
-  background: var(--acr-azul); border-radius: 5px 5px 0 0;
-  min-height: 2px; transition: height .2s;
-}
-.chart-label { font-size: .68rem; color: var(--acr-texto-suave); white-space: nowrap; }
 /* Miniaturas de evidencias en tablas */
 .mini-foto { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--acr-borde); cursor: zoom-in; }
 .mini-foto:hover { border-color: var(--acr-azul); }

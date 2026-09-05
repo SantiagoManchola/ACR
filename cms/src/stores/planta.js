@@ -9,6 +9,7 @@ export const usePlantaStore = defineStore('planta', {
     dosificaciones: [],
     actividades: [],
     horas: [],
+    horasGrafico: [],
     loading: false,
     error: null,
   }),
@@ -47,6 +48,8 @@ export const usePlantaStore = defineStore('planta', {
     async updateActividad(id, p) { const { data } = await client.patch(`/planta/actividades/${id}`, p); return data },
 
     async loadHoras(filtros = {}) { const { data } = await client.get('/planta/horas-servicio', { params: filtros }); this.horas = data },
+    // Datos del gráfico anual (rango amplio): no toca `horas` de la tabla.
+    async loadHorasGrafico(filtros = {}) { const { data } = await client.get('/planta/horas-servicio', { params: filtros }); this.horasGrafico = data; return data },
     async createHoraServicio(p) {
       const { data } = await client.post('/planta/horas-servicio', p); await this.loadHoras(); return data
     },

@@ -7,6 +7,7 @@ import { useMicromedidoresStore } from '../stores/micromedidores'
 import { usePlantaStore } from '../stores/planta'
 import AppIcon from '../components/AppIcon.vue'
 import BaseAlert from '../components/BaseAlert.vue'
+import GraficoHoras from '../components/GraficoHoras.vue'
 import { fmtNum, fmtRango } from '../utils/format'
 
 const auth = useAuthStore()
@@ -324,6 +325,15 @@ onMounted(load)
         </div>
         <BaseAlert v-else type="ok" class="mb-1">Todos los parámetros en rango. ✔</BaseAlert>
       </div>
+    </div>
+
+    <!-- Horas de servicio: mismo gráfico navegable de Planta (anual → mes → semana) -->
+    <div v-if="puedePlanta" class="card dash-card" style="margin-bottom:1.2rem">
+      <div class="card-head">
+        <div class="title"><AppIcon name="clock" /><h3>Horas de servicio</h3></div>
+        <button class="btn btn-ghost btn-sm" @click="go('/planta')">Ver planta</button>
+      </div>
+      <GraficoHoras texto-accion-dia="Clic para abrir planta." @click-dia="go('/planta')" />
     </div>
 
     <div class="card">
