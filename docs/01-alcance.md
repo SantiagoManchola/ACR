@@ -10,8 +10,8 @@
 | Actor | Rol en el sistema |
 |---|---|
 | **Administrador** | Control general: usuarios, roles, permisos, consulta total. |
-| **Personal administrativo** | Consolida inventario y lecturas de micromedidores. |
-| **Operario de planta** | Registra parámetros, dosificaciones, actividades y horas de servicio. |
+| **Personal administrativo** | Consolida inventario **solo de la Oficina** y lecturas de micromedidores. Sin CRUD de ubicaciones (solo admin; los lugares solo se ven). Sí puede hacer traslados sacando stock **desde la Oficina** a cualquier ubicación visible. |
+| **Operario de planta** | Registra parámetros, dosificaciones, actividades y horas de servicio; además registra **ingresos de químicos ya existentes solo en la Planta de tratamiento** (no crea ni edita fichas). |
 | **Fontanero** | Toma física de lecturas; entrega info para registro (puede no usar el sistema directo). |
 
 ## 2. Módulos y requerimientos (RF)

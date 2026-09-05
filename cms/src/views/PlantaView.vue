@@ -20,8 +20,9 @@ const usu = useUsuariosStore()
 const auth = useAuthStore()
 const tab = ref('parametros')
 const saving = ref(false)
-// El operario NO puede hacer CRUD de parámetros ni registrar químicos:
-// solo consulta químicos y registra mediciones/dosificaciones/actividades/horas.
+// El operario NO puede hacer CRUD de parámetros ni crear/editar químicos:
+// solo registra INGRESOS (entradas) de químicos YA EXISTENTES en la planta.
+// El backend lo restringe a químicos EN planta (403 en otro caso).
 const esOperario = computed(() => auth.rol === 'operario')
 const puedeGestionarUsuarios = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 
@@ -43,7 +44,13 @@ function verFoto(url, titulo = 'Evidencia') {
 
 /* Ubicación "Planta de tratamiento": los químicos de este módulo son SOLO los
    de esa sede (ni disponibilidad ni descuentos de otras ubicaciones). */
-const plantaUbi = computed(() => inv.ubicaciones.find((u) => /planta/i.test(u.nombre || '')) || null)
+const plantaUbi = computed(() => {
+  const us = inv.ubicaciones || []
+  // Coincidencia exacta primero: "Planta de tratamiento" antes que "Planta".
+  return us.find((u) => (u.nombre || '').toLowerCase() === 'planta de tratamiento')
+    || us.find((u) => (u.nombre || '').toLowerCase() === 'planta')
+    || us.find((u) => /planta/i.test(u.nombre || '')) || null
+})
 const quimicosPlanta = computed(() => {
   if (!plantaUbi.value) return []
   return inv.quimicos
@@ -246,6 +253,32 @@ async function saveProd() {
     }
     showProd.value = false; await inv.loadQuimicos()
   } catch (e) { prodError.value = apiError(e) } finally { saving.value = false }
+}
+/* Ingreso de químicos YA EXISTENTES (entradas de stock en planta).
+   El operario NO crea fichas nuevas: registra que ingresaron X unidades de
+   un químico existente. El backend exige químico EN planta (403 si no). */
+const showIng = ref(false)
+const ingError = ref('')
+const ingForm = ref({ elemento_id: null, nombre: '', cantidad: '', motivo: '', observaciones: '' })
+function openIngreso(r) {
+  ingForm.value = { elemento_id: r.id, nombre: r.nombre, cantidad: '', motivo: '', observaciones: '' }
+  ingError.value = ''; showIng.value = true
+}
+async function saveIngreso() {
+  ingError.value = ''
+  if (!ingForm.value.cantidad || Number(ingForm.value.cantidad) <= 0) { ingError.value = 'Ingrese una cantidad mayor a 0.'; return }
+  if (!plantaUbi.value) { ingError.value = 'No se encontró la ubicación Planta de tratamiento.'; return }
+  saving.value = true
+  try {
+    await inv.registrarMovimiento(ingForm.value.elemento_id, 'entrada', {
+      ubicacion_id: Number(plantaUbi.value.id),
+      cantidad: Number(ingForm.value.cantidad),
+      motivo: ingForm.value.motivo || null,
+      observaciones: ingForm.value.observaciones || null,
+      fecha: hoyColombia(),
+    })
+    showIng.value = false; await inv.loadQuimicos()
+  } catch (e) { ingError.value = apiError(e) } finally { saving.value = false }
 }
 function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
 async function saveDosis() {
@@ -503,6 +536,7 @@ watch(tab, (t) => {
         </template>
         <template #row-actions="{ row }">
           <button v-if="!esOperario" class="btn btn-ghost btn-sm" @click="openEditProd(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button class="btn btn-ghost btn-sm" @click="openIngreso(row)" title="Registrar ingreso"><AppIcon name="plus" :size="16" /></button>
         </template>
       </DataTable>
       <div class="report-bar">
@@ -673,8 +707,21 @@ watch(tab, (t) => {
       </template>
     </BaseModal>
 
-    <BaseModal v-model="showDosis" title="Registrar dosificación">
-      <BaseAlert v-if="dosisError" type="bad" class="mb-1">{{ dosisError }}</BaseAlert>
+    <BaseModal v-model="showIng" title="Registrar ingreso de químico">
+      <BaseAlert v-if="ingError" type="bad" class="mb-1">{{ ingError }}</BaseAlert>
+      <p class="muted">Químico existente: <strong>{{ ingForm.nombre }}</strong> · Se ingresa en <strong>{{ plantaUbi?.nombre || 'Planta de tratamiento' }}</strong>.</p>
+      <div class="form-row">
+        <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" v-model="ingForm.cantidad" placeholder="0" /></div>
+        <div class="field"><label>Motivo</label><input class="input" v-model="ingForm.motivo" placeholder="Ej. compra, donación" /></div>
+      </div>
+      <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="ingForm.observaciones"></textarea></div>
+      <template #footer>
+        <button class="btn btn-ghost" @click="showIng = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveIngreso">{{ saving ? 'Guardando…' : 'Registrar ingreso' }}</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal v-model="showDosis" title="Registrar dosificación">      <BaseAlert v-if="dosisError" type="bad" class="mb-1">{{ dosisError }}</BaseAlert>
       <div class="form-row">
         <div class="field" style="grid-column:span 2"><label>Insumo *</label>
           <SearchableSelect v-model="dosisForm.elemento_id" :options="prodOptionsDisp" placeholder="Seleccione un químico/insumo…" />

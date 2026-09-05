@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -32,6 +32,64 @@ router = APIRouter(prefix="/inventario", tags=["Inventario"])
 
 _LECTORES = ["admin", "administrativo", "operario"]
 _ESCRITORES = ["admin", "administrativo"]
+# CRUD de ubicaciones: SOLO admin (el administrativo no gestiona ubicaciones).
+_SOLO_ADMIN = ["admin"]
+# El operario NO crea ni edita fichas: solo registra ENTRADAS (ingresos) de
+# químicos YA EXISTENTES en la planta (POST /{id}/entrada).
+_OPERARIO_QUIMICOS = ["admin", "administrativo", "operario"]
+
+
+def _rol(usuario: models.Usuario) -> str:
+    return usuario.rol.nombre if usuario.rol else ""
+
+
+def _ubicacion_por_nombre(db: Session, patron: str):
+    """Ubicación por nombre: exacta primero ('Planta de tratamiento' antes que
+    'Planta'; 'Oficina' antes que 'Nueva oficina'). None si no existe."""
+    if patron.lower() == "planta":
+        return svc_inventario.ubicacion_por_nombre(db, "planta de tratamiento", "planta")
+    if patron.lower() == "oficina":
+        return svc_inventario.ubicacion_por_nombre(db, "oficina")
+    return svc_inventario.ubicacion_por_nombre(db, patron)
+
+
+def _es_quimico(db: Session, categoria_id: int | None) -> bool:
+    """Un químico es un elemento de categoría tipo 'insumo' llamada *quimic*."""
+    if not categoria_id:
+        return False
+    cat = db.get(models.CategoriaInventario, categoria_id)
+    return bool(
+        cat
+        and cat.tipo == models.CategoriaTipo.insumo
+        and "quimic" in (cat.nombre or "").lower()
+    )
+
+
+def _oficina_id(db: Session) -> int | None:
+    """Id de la ubicación Oficina (None si no existe)."""
+    ofi = _ubicacion_por_nombre(db, "oficina")
+    return ofi.id if ofi else None
+
+
+def _solo_oficina(usuario: models.Usuario) -> bool:
+    """El administrativo SOLO ve inventario de la ubicación Oficina."""
+    return _rol(usuario) == "administrativo"
+
+
+def _exigir_quimico_planta(db: Session, usuario: models.Usuario, categoria_id: int | None, ubicacion_id: int | None):
+    """El operario solo ingresa químicos EXISTENTES en la planta.
+
+    Solo se usa en entradas de stock: el químico ya debe existir y el
+    movimiento debe ser EN planta. Admin/administrativo pasan sin restricción.
+    Lanza 403 si no cumple. (Crear/editar fichas: solo admin/administrativo.)
+    """
+    if _rol(usuario) != "operario":
+        return
+    if not _es_quimico(db, categoria_id):
+        raise HTTPException(403, "El operario solo puede ingresar químicos (categoría de insumos *Químicos*)")
+    planta = _ubicacion_por_nombre(db, "planta")
+    if not planta or ubicacion_id != planta.id:
+        raise HTTPException(403, "El operario solo puede registrar químicos en la ubicación Planta de tratamiento")
 
 
 # ----------------------------- Helpers de salida -------------------------------
@@ -54,9 +112,12 @@ def _stock_elemento(db: Session, elemento_id: int, ubs: dict):
     return stock, total
 
 
-def _elemento_out(db: Session, e: models.ElementoInventario, ubicacion_id: int | None = None):
+def _elemento_out(db: Session, e: models.ElementoInventario, ubicacion_id: int | None = None,
+                  solo_stock_ubicacion: int | None = None):
     ubs = _mapa_ubicaciones(db)
     stock, total = _stock_elemento(db, e.id, ubs)
+    if solo_stock_ubicacion is not None:
+        stock = [s for s in stock if s.ubicacion_id == solo_stock_ubicacion]
     if ubicacion_id:
         f = next((s for s in stock if s.ubicacion_id == ubicacion_id), None)
         cantidad = f.cantidad if f else Decimal("0")
@@ -109,8 +170,15 @@ def listar_elementos(
     ubicacion_id: int | None = None,
     estado: str | None = None,
     db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    usuario: models.Usuario = Depends(require_role(_LECTORES)),
 ):
+    # El administrativo SOLO ve inventario de la Oficina: se fuerza el filtro
+    # (se ignora cualquier otra ubicación pedida) y el stock de respuesta.
+    oficina = _oficina_id(db) if _solo_oficina(usuario) else None
+    if _solo_oficina(usuario):
+        if oficina is None:
+            return []
+        ubicacion_id = oficina
     stmt = select(models.ElementoInventario)
     if nombre:
         stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
@@ -142,6 +210,8 @@ def listar_elementos(
     resultado = []
     for e in elementos:
         rows = stock_por_elem.get(e.id, [])
+        if oficina is not None:
+            rows = [s for s in rows if s.ubicacion_id == oficina]
         stock = [
             StockUbicacionOut(
                 id=s.id, elemento_id=s.elemento_id, ubicacion_id=s.ubicacion_id,
@@ -207,6 +277,8 @@ def listar_ubicaciones(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_role(_LECTORES)),
 ):
+    # Directorio de lugares: visible para todos los lectores (solo VER).
+    # El CRUD es SOLO admin y el stock visible se acota por rol en cada endpoint.
     return db.execute(select(models.Ubicacion).order_by(models.Ubicacion.nombre)).scalars().all()
 
 
@@ -219,7 +291,7 @@ def listar_ubicaciones(
 def crear_ubicacion(
     payload: UbicacionCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_SOLO_ADMIN)),
 ):
     ub = models.Ubicacion(**payload.model_dump())
     sellar(ub, usuario, nuevo=True)
@@ -234,7 +306,7 @@ def actualizar_ubicacion(
     uid: int,
     payload: UbicacionUpdate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_SOLO_ADMIN)),
 ):
     ub = db.get(models.Ubicacion, uid)
     if not ub:
@@ -256,9 +328,23 @@ def listar_traslados(
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
     db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    usuario: models.Usuario = Depends(require_role(_LECTORES)),
 ):
-    stmt = select(models.Traslado)
+    # El administrativo ve los traslados donde participa la Oficina
+    # (origen o destino), ignorando otros filtros de ubicación.
+    if _solo_oficina(usuario):
+        oficina = _oficina_id(db)
+        if oficina is None:
+            return []
+        ubicacion_origen_id = ubicacion_destino_id = None
+        stmt = select(models.Traslado).where(
+            or_(
+                models.Traslado.ubicacion_origen_id == oficina,
+                models.Traslado.ubicacion_destino_id == oficina,
+            )
+        )
+    else:
+        stmt = select(models.Traslado)
     if elemento_id:
         stmt = stmt.where(models.Traslado.elemento_id == elemento_id)
     if ubicacion_origen_id:
@@ -308,6 +394,12 @@ def crear_traslado(
         raise HTTPException(400, "ubicacion_destino_id inválida")
     if payload.ubicacion_origen_id == payload.ubicacion_destino_id:
         raise HTTPException(400, "El origen y el destino deben ser distintos")
+    # El administrativo sí puede trasladar, pero solo SACA stock de la Oficina
+    # (su alcance): el destino puede ser cualquier ubicación visible.
+    if _solo_oficina(usuario):
+        oficina = _oficina_id(db)
+        if oficina is None or payload.ubicacion_origen_id != oficina:
+            raise HTTPException(403, "Solo puede trasladar stock desde la ubicación Oficina")
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
     traslado = svc_inventario.aplicar_traslado(
@@ -359,8 +451,14 @@ def movimientos(
     fecha_inicio: str | None = None,
     fecha_fin: str | None = None,
     db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    usuario: models.Usuario = Depends(require_role(_LECTORES)),
 ):
+    # El administrativo solo ve movimientos de la Oficina.
+    if _solo_oficina(usuario):
+        oficina = _oficina_id(db)
+        if oficina is None:
+            return []
+        ubicacion_id = oficina
     stmt = select(models.MovimientoInventario)
     if elemento_id:
         stmt = stmt.where(models.MovimientoInventario.elemento_id == elemento_id)
@@ -392,9 +490,13 @@ def movimientos(
 @router.get("/alertas", response_model=list[AlertaOut], summary="Existencias bajo mínimo")
 def alertas(
     db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    usuario: models.Usuario = Depends(require_role(_LECTORES)),
 ):
-    return svc_inventario.alertas(db)
+    # El administrativo solo ve alertas de la Oficina.
+    oficina = _oficina_id(db) if _solo_oficina(usuario) else None
+    if _solo_oficina(usuario) and oficina is None:
+        return []
+    return svc_inventario.alertas(db, ubicacion_id=oficina)
 
 
 # ----------------------------- Detalle de elemento ----------------------------
@@ -402,11 +504,25 @@ def alertas(
 def obtener_elemento(
     elemento_id: int,
     db: Session = Depends(get_db),
-    _: models.Usuario = Depends(require_role(_LECTORES)),
+    usuario: models.Usuario = Depends(require_role(_LECTORES)),
 ):
     elem = db.get(models.ElementoInventario, elemento_id)
     if not elem:
         raise HTTPException(404, "Elemento no encontrado")
+    # El administrativo solo ve elementos con existencias en Oficina.
+    if _solo_oficina(usuario):
+        oficina = _oficina_id(db)
+        if oficina is None:
+            raise HTTPException(404, "Elemento no encontrado")
+        tiene = db.execute(
+            select(models.StockUbicacion).where(
+                models.StockUbicacion.elemento_id == elemento_id,
+                models.StockUbicacion.ubicacion_id == oficina,
+            )
+        ).scalars().first()
+        if not tiene:
+            raise HTTPException(404, "Elemento no encontrado")
+        return _elemento_out(db, elem, ubicacion_id=oficina, solo_stock_ubicacion=oficina)
     return _elemento_out(db, elem)
 
 
@@ -420,7 +536,8 @@ def actualizar_elemento(
     elem = db.get(models.ElementoInventario, elemento_id)
     if not elem:
         raise HTTPException(404, "Elemento no encontrado")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    datos = payload.model_dump(exclude_unset=True)
+    for k, v in datos.items():
         setattr(elem, k, v)
     sellar(elem, usuario, nuevo=False)
     db.commit()
@@ -449,11 +566,13 @@ def entrada(
     elemento_id: int,
     payload: MovimientoCreate,
     db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(require_role(_ESCRITORES)),
+    usuario: models.Usuario = Depends(require_role(_OPERARIO_QUIMICOS)),
 ):
     elem = db.get(models.ElementoInventario, elemento_id)
     if not elem:
         raise HTTPException(404, "Elemento no encontrado")
+    # El operario solo ingresa químicos EN planta.
+    _exigir_quimico_planta(db, usuario, elem.categoria_id, payload.ubicacion_id)
     fecha = payload.fecha or date.today()
     hora = payload.hora or datetime.now().time()
     svc_inventario.aplicar_movimiento(

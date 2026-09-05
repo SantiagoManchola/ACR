@@ -2,11 +2,32 @@
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..schemas import TipoMovimiento
+
+
+def ubicacion_por_nombre(db: Session, *candidatos: str):
+    """Ubicación por nombre con coincidencia exacta primero (insensible a caso).
+
+    Evita ambigüedades como 'Oficina' vs 'Nueva oficina': se prueban los
+    candidatos exactos en orden y solo al final un parcial determinista (por id).
+    """
+    for c in candidatos:
+        u = db.execute(
+            select(models.Ubicacion).where(func.lower(models.Ubicacion.nombre) == c.lower())
+        ).scalars().first()
+        if u:
+            return u
+    if candidatos:
+        return db.execute(
+            select(models.Ubicacion)
+            .where(models.Ubicacion.nombre.ilike(f"%{candidatos[0]}%"))
+            .order_by(models.Ubicacion.id)
+        ).scalars().first()
+    return None
 
 
 def _obtener_stock(db: Session, elemento_id: int, ubicacion_id: int):
@@ -139,18 +160,21 @@ def aplicar_traslado(
     return traslado
 
 
-def alertas(db: Session):
+def alertas(db: Session, ubicacion_id: int | None = None):
     """Existencias (por ubicación) por debajo de su mínimo configurado (RF-18)."""
     cats = {c.id: c.nombre for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
     ubs = {u.id: u.nombre for u in db.execute(select(models.Ubicacion)).scalars().all()}
+    conds = [
+        models.ElementoInventario.estado == models.EstadoRegistro.activo,
+        models.ElementoInventario.minimo.isnot(None),
+        models.StockUbicacion.cantidad <= models.ElementoInventario.minimo,
+    ]
+    if ubicacion_id is not None:
+        conds.append(models.StockUbicacion.ubicacion_id == ubicacion_id)
     stmt = (
         select(models.StockUbicacion)
         .join(models.ElementoInventario, models.StockUbicacion.elemento_id == models.ElementoInventario.id)
-        .where(
-            models.ElementoInventario.estado == models.EstadoRegistro.activo,
-            models.ElementoInventario.minimo.isnot(None),
-            models.StockUbicacion.cantidad <= models.ElementoInventario.minimo,
-        )
+        .where(*conds)
     )
     resultado = []
     for s in db.execute(stmt).scalars().all():

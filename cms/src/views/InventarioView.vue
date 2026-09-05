@@ -14,6 +14,25 @@ import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 const inv = useInventarioStore()
 const auth = useAuthStore()
 
+/* Roles: el CRUD de ubicaciones es SOLO admin; el administrativo SOLO ve
+   inventario de la Oficina (el backend fuerza ese alcance; aquí se refleja
+   en los filtros bloqueados). */
+const esAdmin = computed(() => auth.rol === 'admin')
+const esAdministrativo = computed(() => auth.rol === 'administrativo')
+const oficinaUbi = computed(() => {
+  const us = inv.ubicaciones || []
+  // Coincidencia exacta primero: "Oficina" antes que "Nueva oficina".
+  return us.find((u) => (u.nombre || '').toLowerCase() === 'oficina')
+    || us.find((u) => /oficina/i.test(u.nombre || '')) || null
+})
+function forzarOficina() {
+  const id = oficinaUbi.value ? oficinaUbi.value.id : ''
+  filtros.value.ubicacion_id = id
+  filtrosMov.value.ubicacion_id = id
+  filtrosTras.value.origen_id = id
+  filtrosTras.value.destino_id = id
+}
+
 const tab = ref('elementos')
 const showForm = ref(false)
 const showMov = ref(false)
@@ -56,7 +75,7 @@ function aplicarFiltros() {
   return f
 }
 function filtrar() { inv.loadElementos(aplicarFiltros()) }
-function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; inv.loadElementos() }
+function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; if (esAdministrativo.value) forzarOficina(); inv.loadElementos(aplicarFiltros()) }
 
 /* Filtros de traslados */
 /* Filtros de traslados (fechas por defecto: hoy en Colombia) */
@@ -71,7 +90,7 @@ function aplicarFiltrosTras() {
   return f
 }
 function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras()) }
-function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarTras() }
+function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; if (esAdministrativo.value) forzarOficina(); filtrarTras() }
 
 /* Filtros de movimientos (fechas por defecto: hoy en Colombia) */
 const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
@@ -85,7 +104,7 @@ function aplicarFiltrosMov() {
   return f
 }
 function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov()) }
-function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarMov() }
+function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; if (esAdministrativo.value) forzarOficina(); filtrarMov() }
 
 const movTipoOptions = [
   { value: 'entrada', label: 'Entrada' },
@@ -160,7 +179,7 @@ const resumenUbi = computed(() => {
       }
     }
   }
-  return Object.values(map)
+  return Object.values(map).filter((r) => !esAdministrativo.value || (oficinaUbi.value && r.nombre === oficinaUbi.value.nombre))
 })
 
 /* Confirmación de acciones destructivas */
@@ -291,6 +310,8 @@ const trasForm = ref({ elemento_id: null, ubicacion_origen_id: null, ubicacion_d
 const trasError = ref('')
 function openNewTras() {
   trasForm.value = { elemento_id: null, ubicacion_origen_id: null, ubicacion_destino_id: null, cantidad: '', observaciones: '', fecha: hoyColombia() }
+  // El administrativo solo saca stock de la Oficina: origen predefinido.
+  if (esAdministrativo.value && oficinaUbi.value) trasForm.value.ubicacion_origen_id = oficinaUbi.value.id
   trasError.value = ''; showTras.value = true
 }
 const trasUbicOrigenOptions = computed(() => {
@@ -350,7 +371,8 @@ function badgeTone(tipo) { return tipo === 'entrada' ? 'badge-ok' : 'badge-warn'
 onMounted(async () => {
   await inv.loadCategorias()
   await inv.loadUbicaciones()
-  await inv.loadElementos()
+  if (esAdministrativo.value) forzarOficina()
+  await inv.loadElementos(aplicarFiltros())
   await inv.loadAlertas()
   filtrarMov()
   filtrarTras()
@@ -370,6 +392,7 @@ watch(() => tab.value, (t) => {
   <div>
     <h1>Inventario</h1>
     <p class="muted">Productos, ubicaciones, traslados, movimientos y alertas de existencias (RF-06 a RF-20).</p>
+    <p v-if="esAdministrativo" class="muted">Viendo inventario de <strong>{{ oficinaUbi?.nombre || 'Oficina' }}</strong>: tu rol solo tiene alcance a esa ubicación.</p>
 
     <div class="tabs">
       <button :class="{ active: tab === 'elementos' }" @click="tab = 'elementos'"><AppIcon name="package" />Elementos</button>
@@ -396,7 +419,7 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Ubicación</label>
-          <SearchableSelect v-model="filtros.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable />
+          <SearchableSelect v-model="filtros.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable :disabled="esAdministrativo" />
         </div>
         <div class="field filter-actions">
           <button class="btn btn-primary" @click="filtrar"><AppIcon name="search" />Filtrar</button>
@@ -454,7 +477,7 @@ watch(() => tab.value, (t) => {
     <!-- UBICACIONES -->
     <div v-else-if="tab === 'ubicaciones'">
       <div class="toolbar">
-        <button class="btn btn-primary" @click="openNewUbi"><AppIcon name="plus" />Nueva ubicación</button>
+        <button v-if="esAdmin" class="btn btn-primary" @click="openNewUbi"><AppIcon name="plus" />Nueva ubicación</button>
         <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
       </div>
       <div class="resumen-ubi" v-if="resumenUbi.length">
@@ -466,7 +489,7 @@ watch(() => tab.value, (t) => {
       </div>
       <DataTable :columns="ubiColsFinal" :rows="inv.ubicaciones" :loading="inv.loading" empty-text="Sin ubicaciones registradas.">
         <template #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" @click="openEditUbi(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
+          <button v-if="esAdmin" class="btn btn-ghost btn-sm" @click="openEditUbi(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
         </template>
       </DataTable>
     </div>
@@ -481,14 +504,15 @@ watch(() => tab.value, (t) => {
           <label>Producto</label>
           <SearchableSelect v-model="filtrosTras.elemento_id" :options="elementoOptions" placeholder="Todos" />
         </div>
-        <div class="field">
+        <div class="field" v-if="!esAdministrativo">
           <label>Origen</label>
           <SearchableSelect v-model="filtrosTras.origen_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
-        <div class="field">
+        <div class="field" v-if="!esAdministrativo">
           <label>Destino</label>
           <SearchableSelect v-model="filtrosTras.destino_id" :options="ubiOptions" placeholder="Todas" clearable />
         </div>
+        <p v-else class="muted" style="align-self:end">Alcance: traslados donde participa {{ oficinaUbi?.nombre || 'Oficina' }} (los lugares se muestran solo como información).</p>
         <div class="field">
           <label>Desde</label>
           <input class="input" type="date" v-model="filtrosTras.fecha_inicio" />
@@ -523,7 +547,7 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Ubicación</label>
-          <SearchableSelect v-model="filtrosMov.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable />
+          <SearchableSelect v-model="filtrosMov.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable :disabled="esAdministrativo" />
         </div>
         <div class="field">
           <label>Tipo</label>
@@ -698,7 +722,7 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field" style="grid-column:span 2">
           <label>Ubicación de origen *</label>
-          <SearchableSelect v-model="trasForm.ubicacion_origen_id" :options="trasUbicOrigenOptions" placeholder="De dónde sale" />
+          <SearchableSelect v-model="trasForm.ubicacion_origen_id" :options="trasUbicOrigenOptions" placeholder="De dónde sale" :disabled="esAdministrativo" />
         </div>
         <div class="field" style="grid-column:span 2">
           <label>Ubicación de destino *</label>

@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from .. import models
 from ..security import get_current_user, get_db, require_role
-from ..services import planta as svc_planta, micromedidores as svc_mm
+from ..services import inventario as svc_inv, planta as svc_planta, micromedidores as svc_mm
 from ..services.export import a_csv, a_xlsx, a_pdf
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
@@ -42,15 +42,31 @@ def _responder(filas, columnas, formato: str, nombre: str, titulo: str):
     raise HTTPException(400, "formato debe ser csv, xlsx o pdf")
 
 
-def _stock_resumen(db, e):
-    """Total de existencias y detalle por ubicación de un elemento de inventario."""
+def _stock_resumen(db, e, ubicacion_id: int | None = None):
+    """Total de existencias y detalle por ubicación de un elemento de inventario.
+
+    Con ubicacion_id solo cuenta esa ubicación (alcance Oficina del administrativo).
+    """
     ubs = {u.id: u.nombre for u in db.execute(select(models.Ubicacion)).scalars().all()}
-    rows = db.execute(
-        select(models.StockUbicacion).where(models.StockUbicacion.elemento_id == e.id)
-    ).scalars().all()
+    stmt = select(models.StockUbicacion).where(models.StockUbicacion.elemento_id == e.id)
+    if ubicacion_id is not None:
+        stmt = stmt.where(models.StockUbicacion.ubicacion_id == ubicacion_id)
+    rows = db.execute(stmt).scalars().all()
     total = sum((Decimal(str(s.cantidad)) for s in rows), Decimal("0"))
     detalle = ", ".join(f"{ubs.get(s.ubicacion_id, s.ubicacion_id)}: {s.cantidad}" for s in rows) or "—"
     return total, detalle
+
+
+def _oficina_scope(db, usuario) -> int | None:
+    """Ubicación forzada para el administrativo (None = sin restricción).
+
+    Devuelve -1 si el administrativo no tiene Oficina configurada (sin datos).
+    """
+    rol = usuario.rol.nombre if usuario.rol else ""
+    if rol != "administrativo":
+        return None
+    ofi = svc_inv.ubicacion_por_nombre(db, "oficina")
+    return ofi.id if ofi else -1
 
 
 # ----------------------------- INVENTARIO -----------------------------------
@@ -62,12 +78,26 @@ def reporte_inventario(
     estado: str | None = None,
     solo_insumos: bool = Query(default=False),
     formato: str = Query(default="csv"),
-    db=Depends(get_db), _=Depends(require_role(_LECTORES_INV)),
+    db=Depends(get_db), usuario=Depends(require_role(_LECTORES_INV)),
 ):
     cats = {c.id: c for c in db.execute(select(models.CategoriaInventario)).scalars().all()}
+    # El administrativo solo ve inventario de la Oficina (también en reportes).
+    scope_ofi = _oficina_scope(db, usuario)
 
     def _stock(e):
-        return _stock_resumen(db, e)
+        return _stock_resumen(db, e, ubicacion_id=scope_ofi if scope_ofi != -1 else None)
+
+    def _tiene_stock(e):
+        if scope_ofi is None:
+            return True
+        if scope_ofi == -1:
+            return False
+        return db.execute(
+            select(models.StockUbicacion).where(
+                models.StockUbicacion.elemento_id == e.id,
+                models.StockUbicacion.ubicacion_id == scope_ofi,
+            )
+        ).scalars().first() is not None
 
     if tipo == "quimicos" or solo_insumos:
         # Los químicos son elementos de inventario cuya categoría es de tipo 'insumo'
@@ -82,6 +112,8 @@ def reporte_inventario(
         filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
         datos = []
         for e in filas:
+            if not _tiene_stock(e):
+                continue
             total, detalle = _stock(e)
             datos.append({
                 "id": e.id, "nombre": e.nombre,
@@ -102,6 +134,8 @@ def reporte_inventario(
     filas = db.execute(stmt.order_by(models.ElementoInventario.nombre)).scalars().all()
     datos = []
     for e in filas:
+        if not _tiene_stock(e):
+            continue
         total, detalle = _stock(e)
         datos.append({
             "tipo": "Elemento", "id": e.id, "nombre": e.nombre,
