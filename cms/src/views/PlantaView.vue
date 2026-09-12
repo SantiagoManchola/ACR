@@ -122,7 +122,7 @@ const paramError = ref('')
 const emptyParam = () => ({ nombre: '', tipo_agua: 'cruda', unidad: '', valor_min: '', valor_max: '' })
 const paramForm = ref(emptyParam())
 const paramCols = [
-  { key: 'nombre', label: 'Parámetro' },
+  { key: 'nombre', label: 'Parámetro', cardTitle: true },
   { key: 'tipo_agua', label: 'Tipo de agua' },
   { key: 'unidad', label: 'Unidad' },
   { key: 'rango', label: 'Rango min / máx' },
@@ -149,26 +149,26 @@ const medForm = ref(emptyMed())
 const fotoMedRef = ref(null)
 const medCols = [
   { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'parametro', label: 'Parámetro', sortValue: (r) => paramMap.value[r.parametro_id]?.nombre || '' },
-  { key: 'tipo_agua', label: 'Tipo de agua', sortValue: (r) => paramMap.value[r.parametro_id]?.tipo_agua || '' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'parametro', label: 'Parámetro', cardTitle: true, sortValue: (r) => paramMap.value[r.parametro_id]?.nombre || '' },
+  { key: 'tipo_agua', label: 'Tipo de agua', hideOnCard: true, sortValue: (r) => paramMap.value[r.parametro_id]?.tipo_agua || '' },
   { key: 'valor', label: 'Valor', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad', sortValue: (r) => paramMap.value[r.parametro_id]?.unidad || '' },
   { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
   { key: 'fuera_rango', label: 'Estado' },
   { key: 'foto', label: 'Foto', sortable: false },
-  { key: 'accion_correctiva', label: 'Acción correctiva' },
+  { key: 'accion_correctiva', label: 'Acción correctiva', wide: true },
 ]
 /* Pestaña "Fuera de rango": estado ACTUAL por parámetro (última medición) */
 const fueraCols = [
-  { key: 'parametro', label: 'Parámetro' },
-  { key: 'tipo_agua', label: 'Tipo de agua' },
+  { key: 'parametro', label: 'Parámetro', cardTitle: true },
+  { key: 'tipo_agua', label: 'Tipo de agua', hideOnCard: true },
   { key: 'valor', label: 'Último valor', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'rango', label: 'Rango' },
   { key: 'fecha', label: 'Desde' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'accion_correctiva', label: 'Acción correctiva' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'accion_correctiva', label: 'Acción correctiva', wide: true },
 ]
 function openNewMed() { medForm.value = emptyMed(); medError.value = ''; showMed.value = true }
 async function saveMed() {
@@ -208,20 +208,20 @@ const dosisUnidad = computed(() => {
   return p?.unidad || ''
 })
 const prodCols = [
-  { key: 'nombre', label: 'Insumo' },
-  { key: 'unidad', label: 'Unidad' },
+  { key: 'nombre', label: 'Insumo', cardTitle: true },
+  { key: 'unidad', label: 'Unidad', hideOnCard: true },
   { key: 'cantidad', label: 'Disponible en planta', align: 'right', num: true },
-  { key: 'minimo', label: 'Mínimo', align: 'right', num: true },
+  { key: 'minimo', label: 'Mínimo', align: 'right' },
   { key: 'estado', label: 'Estado' },
 ]
 const dosisCols = [
   { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'insumo', label: 'Insumo', sortValue: (r) => prodMap.value[r.elemento_id] || '' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'insumo', label: 'Insumo', cardTitle: true, sortValue: (r) => prodMap.value[r.elemento_id] || '' },
   { key: 'tasa', label: 'Tasa (bomba)' },
   { key: 'cantidad', label: 'Aplicado', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
-  { key: 'observaciones', label: 'Observaciones' },
+  { key: 'observaciones', label: 'Observaciones', wide: true },
 ]
 function openNewProd() {
   editingProd.value = null
@@ -351,12 +351,12 @@ const actForm = ref(emptyAct())
 const fotoActRef = ref(null)
 const actCols = [
   { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'tipo', label: 'Tipo' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'tipo', label: 'Tipo', cardTitle: true },
   { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
   { key: 'estado', label: 'Estado' },
-  { key: 'observaciones', label: 'Observaciones' },
-  { key: 'evidencia', label: 'Evidencia' },
+  { key: 'observaciones', label: 'Observaciones', wide: true },
+  { key: 'evidencia', label: 'Evidencia', wide: true },
   { key: 'foto', label: 'Foto', sortable: false },
 ]
 const actTipos = ['Limpieza', 'Desinfección', 'Tanques', 'Bocatoma', 'Mantenimiento']
@@ -383,9 +383,9 @@ const horaError = ref('')
 const emptyHora = () => ({ fecha: new Date().toISOString().slice(0, 10), horas: '', responsable_id: null, observaciones: '' })
 const horaForm = ref(emptyHora())
 const horaCols = [
-  { key: 'fecha', label: 'Fecha' },
+  { key: 'fecha', label: 'Fecha', cardTitle: true },
   { key: 'horas', label: 'Horas', align: 'right', num: true },
-  { key: 'observaciones', label: 'Observaciones' },
+  { key: 'observaciones', label: 'Observaciones', wide: true },
 ]
 function openNewHora() { horaForm.value = emptyHora(); horaError.value = ''; showHora.value = true }
 async function saveHora() {
@@ -742,7 +742,7 @@ watch(tab, (t) => {
     <BaseModal v-model="showHora" title="Registrar horas de servicio">
       <BaseAlert v-if="horaError" type="bad" class="mb-1">{{ horaError }}</BaseAlert>
       <div class="form-row">
-        <div class="field"><label>Fecha *</label><input class="input" type="date" v-model="horaForm.fecha" /></div>
+        <div class="field"><label>Fecha *</label><BaseInput v-model="horaForm.fecha" type="date" /></div>
         <div class="field"><label>Horas *</label><input class="input" type="number" step="0.5" v-model="horaForm.horas" placeholder="0" /></div>
         <div class="field" style="grid-column:span 2"><label>Responsable</label>
           <SearchableSelect v-model="horaForm.responsable_id" :options="userOptions" placeholder="Usuario responsable" clearable />

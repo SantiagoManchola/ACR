@@ -164,6 +164,7 @@ onBeforeUnmount(() => {
 .ss-chev { color: var(--acr-texto-suave); flex: none; transform: rotate(0deg); transition: transform .15s; }
 .ss-control.open .ss-chev { transform: rotate(180deg); }
 .ss-clear { background: none; border: none; cursor: pointer; color: var(--acr-texto-suave); display: grid; place-items: center; flex: none; padding: 0; }
+@media (max-width: 700px) { .ss-input { font-size: 1rem; } }
 </style>
 
 <style>

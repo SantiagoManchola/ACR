@@ -207,6 +207,24 @@ h3 { font-size: 1rem; }
   background-repeat: no-repeat; background-position: right .75rem center; padding-right: 2rem; cursor: pointer;
 }
 .textarea { resize: vertical; min-height: 72px; line-height: 1.5; }
+
+/* Fechas: iOS/Safari ignora el padding y encoge el control cuando está vacío.
+   Se normaliza altura, alineación y el padding interno del shadow DOM. */
+.input[type="date"] {
+  -webkit-appearance: none; appearance: none;
+  min-height: 2.55rem; line-height: 1.2;
+  display: block; text-align: left;
+}
+.input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.input[type="date"]::-webkit-datetime-edit,
+.input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.input[type="date"]::-webkit-datetime-edit-text,
+.input[type="date"]::-webkit-datetime-edit-day-field,
+.input[type="date"]::-webkit-datetime-edit-month-field,
+.input[type="date"]::-webkit-datetime-edit-year-field { padding: 0; }
+/* El ícono nativo se oculta: BaseInput muestra uno propio y consistente */
+.input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0; cursor: pointer; }
+.input[type="date"]:disabled { background: #F4F8FD; }
 .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .9rem; }
 .form-error { color: var(--acr-bad); font-size: .8rem; margin-top: .25rem; }
 
@@ -425,3 +443,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: .88rem; }
   .sidebar-backdrop { display: block; position: fixed; inset: 60px 0 0 0; background: rgba(0,0,0,.25); z-index: 35; }
 }
 @media (min-width: 881px) { .sidebar-backdrop { display: none; } }
+
+/* Móvil: campos más cómodos y sin zoom automático de iOS (fuente >= 16px) */
+@media (max-width: 700px) {
+  .input, .select, .textarea { font-size: 1rem; }
+  .input[type="date"] { min-height: 2.9rem; }
+  .filter-bar { padding: .7rem; }
+}

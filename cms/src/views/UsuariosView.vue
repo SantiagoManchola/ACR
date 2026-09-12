@@ -46,7 +46,7 @@ const userError = ref('')
 const emptyUser = () => ({ nombre: '', identificacion: '', username: '', password: '', rol_id: null })
 const userForm = ref(emptyUser())
 const userCols = [
-  { key: 'nombre', label: 'Nombre' },
+  { key: 'nombre', label: 'Nombre', cardTitle: true },
   { key: 'username', label: 'Usuario' },
   { key: 'rol', label: 'Rol', sortValue: (r) => rolMap(r.rol_id) },
   { key: 'estado', label: 'Estado' },
@@ -74,9 +74,9 @@ const showRol = ref(false)
 const rolError = ref('')
 const rolForm = ref({ nombre: '', descripcion: '' })
 const rolCols = [
-  { key: 'id', label: 'ID' },
-  { key: 'nombre', label: 'Nombre' },
-  { key: 'descripcion', label: 'Descripción' },
+  { key: 'id', label: 'ID', hideOnCard: true },
+  { key: 'nombre', label: 'Nombre', cardTitle: true },
+  { key: 'descripcion', label: 'Descripción', wide: true },
 ]
 function openNewRol() { rolForm.value = { nombre: '', descripcion: '' }; rolError.value = ''; showRol.value = true }
 async function saveRol() {

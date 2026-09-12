@@ -137,9 +137,9 @@ const elementoOptions = computed(() => inv.elementos.map((e) => {
 const emptyCat = () => ({ nombre: '', tipo: 'equipo', descripcion: '' })
 const catForm = ref(emptyCat())
 const catCols = [
-  { key: 'nombre', label: 'Nombre' },
+  { key: 'nombre', label: 'Nombre', cardTitle: true },
   { key: 'tipo', label: 'Tipo' },
-  { key: 'descripcion', label: 'Descripción' },
+  { key: 'descripcion', label: 'Descripción', wide: true },
 ]
 function openNewCat() { catForm.value = emptyCat(); catError.value = ''; showCat.value = true }
 async function saveCat() {
@@ -154,8 +154,8 @@ async function saveCat() {
 const emptyUbi = () => ({ nombre: '', descripcion: '' })
 const ubiForm = ref(emptyUbi())
 const ubiCols = [
-  { key: 'nombre', label: 'Nombre' },
-  { key: 'descripcion', label: 'Descripción' },
+  { key: 'nombre', label: 'Nombre', cardTitle: true },
+  { key: 'descripcion', label: 'Descripción', wide: true },
 ]
 const editingUbi = ref(null)
 function openNewUbi() { editingUbi.value = null; ubiForm.value = emptyUbi(); ubiError.value = ''; showUbi.value = true }
@@ -220,9 +220,9 @@ const form = ref(emptyForm())
 const movForm = ref({ ubicacion_id: null, cantidad: '', motivo: '', observaciones: '', fecha: hoyColombia() })
 
 const elementosCols = [
-  { key: 'nombre', label: 'Elemento' },
+  { key: 'nombre', label: 'Elemento', cardTitle: true },
   { key: 'categoria', label: 'Categoría', sortValue: (r) => catMap.value[r.categoria_id] || '' },
-  { key: 'ubicaciones', label: 'Ubicaciones', sortable: false },
+  { key: 'ubicaciones', label: 'Ubicaciones', sortable: false, wide: true },
   { key: 'cantidad', label: 'Cant. total', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'minimo', label: 'Mín.', align: 'right' },
@@ -230,15 +230,15 @@ const elementosCols = [
 const movCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Elemento', sortValue: (r) => inv.elementos.find((e) => e.id === r.elemento_id)?.nombre || '' },
+  { key: 'elemento', label: 'Elemento', cardTitle: true, sortValue: (r) => inv.elementos.find((e) => e.id === r.elemento_id)?.nombre || '' },
   { key: 'ubicacion', label: 'Ubicación' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
-  { key: 'motivo', label: 'Motivo' },
+  { key: 'motivo', label: 'Motivo', wide: true },
 ]
 const alertCols = [
   { key: 'tipo', label: 'Tipo' },
-  { key: 'nombre', label: 'Elemento' },
+  { key: 'nombre', label: 'Elemento', cardTitle: true },
   { key: 'categoria', label: 'Categoría' },
   { key: 'ubicacion', label: 'Ubicación' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
@@ -348,7 +348,7 @@ async function saveTras() {
 const trasladoCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Producto', sortValue: (r) => elemMap.value[r.elemento_id]?.nombre || '' },
+  { key: 'elemento', label: 'Producto', cardTitle: true, sortValue: (r) => elemMap.value[r.elemento_id]?.nombre || '' },
   { key: 'origen', label: 'Origen' },
   { key: 'destino', label: 'Destino' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
@@ -663,7 +663,7 @@ watch(() => tab.value, (t) => {
       </div>
       <div class="field">
         <label>Fecha</label>
-        <input class="input" type="date" v-model="movForm.fecha" />
+        <BaseInput v-model="movForm.fecha" type="date" />
       </div>
       <div class="field">
         <label>Observaciones</label>
@@ -721,7 +721,7 @@ watch(() => tab.value, (t) => {
           <SearchableSelect v-model="trasForm.ubicacion_destino_id" :options="trasUbicDestinoOptions" placeholder="A dónde llega" />
         </div>
         <div class="field"><label>Cantidad *</label><input class="input" type="number" step="0.01" placeholder="0" v-model="trasForm.cantidad" /></div>
-        <div class="field"><label>Fecha</label><input class="input" type="date" v-model="trasForm.fecha" /></div>
+        <div class="field"><label>Fecha</label><BaseInput v-model="trasForm.fecha" type="date" /></div>
         <div class="field" style="grid-column:span 2"><label>Observaciones</label><textarea class="textarea" v-model="trasForm.observaciones" /></div>
       </div>
       <template #footer>

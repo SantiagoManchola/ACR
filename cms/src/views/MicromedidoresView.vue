@@ -142,12 +142,12 @@ const emptySus = () => ({ nombre: '', identificacion: '', codigo_usuario: '', co
 const susForm = ref(emptySus())
 
 const susCols = [
-  { key: 'nombre', label: 'Nombre' },
+  { key: 'nombre', label: 'Nombre', cardTitle: true },
   { key: 'identificacion', label: 'Identificación' },
   { key: 'sector', label: 'Sector' },
   { key: 'tipo_usuario', label: 'Tipo' },
   { key: 'estado', label: 'Estado' },
-  { key: 'direccion', label: 'Dirección' },
+  { key: 'direccion', label: 'Dirección', wide: true },
 ]
 function openNewSus() { editingSus.value = null; susForm.value = emptySus(); susError.value = ''; showSus.value = true }
 function openEditSus(r) { editingSus.value = r; susForm.value = { ...r }; susError.value = ''; showSus.value = true }
@@ -174,7 +174,7 @@ const secError = ref('')
 const secForm = ref({ nombre: '' })
 const conteoSec = ref({})
 const secCols = [
-  { key: 'nombre', label: 'Sector' },
+  { key: 'nombre', label: 'Sector', cardTitle: true },
   { key: 'suscriptores', label: 'Suscriptores', align: 'right', num: true },
   { key: 'estado', label: 'Estado' },
 ]
@@ -210,10 +210,10 @@ const emptyMm = () => ({ serial: '', tipo: '', suscriptor_id: null, direccion: '
 const mmForm = ref(emptyMm())
 
 const mmCols = [
-  { key: 'serial', label: 'Serial' },
+  { key: 'serial', label: 'Serial', cardTitle: true },
   { key: 'tipo', label: 'Tipo' },
   { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
-  { key: 'direccion', label: 'Dirección' },
+  { key: 'direccion', label: 'Dirección', wide: true },
   { key: 'fecha_instalacion', label: 'Instalación' },
   { key: 'condicion', label: 'Condición' },
   { key: 'estado', label: 'Estado' },
@@ -258,23 +258,23 @@ const fotoLecRef = ref(null)
 
 const lecCols = [
   { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
-  { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'suscriptor', label: 'Suscriptor', cardTitle: true, sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
   { key: 'micromedidor_id', label: 'Medidor', sortValue: (r) => mmMap.value[r.micromedidor_id] || '' },
   { key: 'lectura', label: 'Lectura', align: 'right' },
   { key: 'consumo', label: 'Consumo', align: 'right' },
   { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
   { key: 'foto', label: 'Foto', sortable: false },
-  { key: 'novedad', label: 'Novedad' },
+  { key: 'novedad', label: 'Novedad', wide: true },
 ]
 const detailLecCols = [
   { key: 'fecha', label: 'Fecha' },
-  { key: 'hora', label: 'Hora' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
   { key: 'lectura', label: 'Lectura', align: 'right', num: true },
   { key: 'consumo', label: 'Consumo', align: 'right', num: true },
   { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
   { key: 'foto', label: 'Foto', sortable: false },
-  { key: 'novedad', label: 'Novedad' },
+  { key: 'novedad', label: 'Novedad', wide: true },
 ]
 const detailIsSus = computed(() => !!mm.historial && !!mm.historial.suscriptor)
 const detailEntity = computed(() => mm.historial?.suscriptor || mm.historial?.micromedidor || null)
@@ -677,7 +677,7 @@ onMounted(async () => {
           <p v-if="editingMm" class="hint">Un medidor no cambia de suscriptor: la asignación se define al crearlo.</p>
         </div>
         <div class="field" style="grid-column:span 2"><label>Dirección</label><input class="input" v-model="mmForm.direccion" /></div>
-        <div class="field"><label>Fecha de instalación</label><input class="input" type="date" v-model="mmForm.fecha_instalacion" /></div>
+        <div class="field"><label>Fecha de instalación</label><BaseInput v-model="mmForm.fecha_instalacion" type="date" /></div>
         <div class="field"><label>Condición</label>
           <SearchableSelect v-model="mmForm.condicion" :options="condicionOptions" placeholder="Condición" />
           <p class="hint">«Frenado» se detecta solo con 3 lecturas mensuales idénticas seguidas.</p>
