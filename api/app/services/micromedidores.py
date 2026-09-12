@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
+from .common import condiciones_busqueda
 
 
 def _lectura_previa(db: Session, micromedidor_id: int, fecha):
@@ -91,16 +92,25 @@ def resolver_lectura(
     return Decimal(str(lectura)), None, False
 
 
-def filtrar_suscriptores(db: Session, *, nombre=None, identificacion=None, sector=None, tipo_usuario=None):
+def filtrar_suscriptores(db: Session, *, nombre=None, identificacion=None, sector=None,
+                         tipo_usuario=None, con_medidor: bool | None = None):
     stmt = select(models.Suscriptor)
     if nombre:
-        stmt = stmt.where(models.Suscriptor.nombre.ilike(f"%{nombre}%"))
+        stmt = stmt.where(*condiciones_busqueda(models.Suscriptor.nombre, nombre))
     if identificacion:
-        stmt = stmt.where(models.Suscriptor.identificacion.ilike(f"%{identificacion}%"))
+        stmt = stmt.where(*condiciones_busqueda(models.Suscriptor.identificacion, identificacion))
     if sector:
-        stmt = stmt.where(models.Suscriptor.sector == sector)
+        stmt = stmt.where(models.Suscriptor.sector.ilike(f"%{sector}%"))
     if tipo_usuario:
         stmt = stmt.where(models.Suscriptor.tipo_usuario == tipo_usuario)
+    if con_medidor is not None:
+        con = select(models.Micromedidor.suscriptor_id).where(
+            models.Micromedidor.suscriptor_id.isnot(None)
+        )
+        if con_medidor:
+            stmt = stmt.where(models.Suscriptor.id.in_(con))
+        else:
+            stmt = stmt.where(models.Suscriptor.id.notin_(con))
     return db.execute(stmt.order_by(models.Suscriptor.nombre)).scalars().all()
 
 
@@ -151,7 +161,7 @@ def evaluar_condicion(db: Session, micromedidor_id: int):
 def filtrar_micromedidores(db: Session, *, serial=None, suscriptor_id=None, estado=None, sector=None, condicion=None):
     stmt = select(models.Micromedidor)
     if serial:
-        stmt = stmt.where(models.Micromedidor.serial.ilike(f"%{serial}%"))
+        stmt = stmt.where(*condiciones_busqueda(models.Micromedidor.serial, serial))
     if suscriptor_id:
         stmt = stmt.where(models.Micromedidor.suscriptor_id == suscriptor_id)
     if estado:
@@ -160,7 +170,7 @@ def filtrar_micromedidores(db: Session, *, serial=None, suscriptor_id=None, esta
         stmt = stmt.where(models.Micromedidor.condicion == condicion)
     if sector:
         stmt = stmt.join(models.Suscriptor, models.Micromedidor.suscriptor_id == models.Suscriptor.id)
-        stmt = stmt.where(models.Suscriptor.sector == sector)
+        stmt = stmt.where(models.Suscriptor.sector.ilike(f"%{sector}%"))
     return db.execute(stmt.order_by(models.Micromedidor.serial)).scalars().all()
 
 
@@ -173,7 +183,7 @@ def filtrar_lecturas(db: Session, *, micromedidor_id=None, suscriptor_id=None,
         stmt = stmt.where(models.Lectura.suscriptor_id == suscriptor_id)
     if sector:
         stmt = stmt.join(models.Suscriptor, models.Lectura.suscriptor_id == models.Suscriptor.id)
-        stmt = stmt.where(models.Suscriptor.sector == sector)
+        stmt = stmt.where(models.Suscriptor.sector.ilike(f"%{sector}%"))
     if fecha_inicio:
         stmt = stmt.where(models.Lectura.fecha >= fecha_inicio)
     if fecha_fin:

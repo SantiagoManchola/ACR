@@ -202,7 +202,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div>
+  <div class="view-scroll">
     <div class="dash-head">
       <div>
         <h1>Bienvenido, {{ auth.nombre || 'usuario' }}</h1>

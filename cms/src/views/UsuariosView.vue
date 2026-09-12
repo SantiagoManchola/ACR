@@ -48,7 +48,7 @@ const userForm = ref(emptyUser())
 const userCols = [
   { key: 'nombre', label: 'Nombre' },
   { key: 'username', label: 'Usuario' },
-  { key: 'rol', label: 'Rol' },
+  { key: 'rol', label: 'Rol', sortValue: (r) => rolMap(r.rol_id) },
   { key: 'estado', label: 'Estado' },
 ]
 function openNewUser() { editingUser.value = null; userForm.value = emptyUser(); userError.value = ''; showUser.value = true }
@@ -94,16 +94,16 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="view-fit">
     <h1>Usuarios y roles</h1>
-    <p class="muted">Gestión de accesos del sistema (RF-01 a RF-05). Solo administradores.</p>
+    <p class="muted">Gestión de accesos del sistema. Solo administradores.</p>
 
     <div class="tabs">
       <button :class="{ active: tab === 'usuarios' }" @click="tab = 'usuarios'"><AppIcon name="users" />Usuarios</button>
       <button :class="{ active: tab === 'roles' }" @click="tab = 'roles'"><AppIcon name="role" />Roles</button>
     </div>
 
-    <div v-if="tab === 'usuarios'">
+    <div v-if="tab === 'usuarios'" class="tab-panel">
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewUser"><AppIcon name="userplus" />Nuevo usuario</button>
         <button class="btn btn-ghost" @click="refreshUsuarios"><AppIcon name="refresh" />Refrescar</button>
@@ -121,7 +121,7 @@ onMounted(async () => {
       </DataTable>
     </div>
 
-    <div v-else>
+    <div v-else class="tab-panel">
       <div class="toolbar"><button class="btn btn-primary" @click="openNewRol"><AppIcon name="plus" />Nuevo rol</button></div>
       <DataTable :columns="rolCols" :rows="usu.roles" :loading="usu.loading" empty-text="Sin roles registrados." />
     </div>

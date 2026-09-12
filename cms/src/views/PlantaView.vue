@@ -11,9 +11,11 @@ import AppIcon from '../components/AppIcon.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
 import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
+import BaseInput from '../components/BaseInput.vue'
 import GraficoHoras from '../components/GraficoHoras.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
+import { debounce } from '../utils/debounce'
 
 const planta = usePlantaStore()
 const inv = useInventarioStore()
@@ -76,22 +78,23 @@ async function generarReporte(tipo, filtros = {}) {
   catch (e) { alert(apiError(e)) }
 }
 
-/* Filtros por pestaña (fechas por defecto: hoy en Colombia) */
+/* Filtros por pestaña (fechas por defecto: hoy en Colombia; auto-búsqueda con debounce) */
 const medFiltro = ref({ parametro_id: '', fuera_rango: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarMed() { planta.loadMediciones(buildFiltros(medFiltro.value)) }
-function limpiarMed() { medFiltro.value = { parametro_id: '', fuera_rango: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarMed() }
 
 const actFiltro = ref({ tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarAct() { planta.loadActividades(buildFiltros(actFiltro.value)) }
-function limpiarAct() { actFiltro.value = { tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarAct() }
 
 const dosisFiltro = ref({ elemento_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarDosis() { planta.loadDosificaciones(buildFiltros(dosisFiltro.value)) }
-function limpiarDosis() { dosisFiltro.value = { elemento_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarDosis() }
 
 const horaFiltro = ref({ fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 function filtrarHora() { planta.loadHoras(buildFiltros(horaFiltro.value)) }
-function limpiarHora() { horaFiltro.value = { fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; filtrarHora() }
+
+watch(medFiltro, debounce(() => filtrarMed(), 350), { deep: true })
+watch(actFiltro, debounce(() => filtrarAct(), 350), { deep: true })
+watch(dosisFiltro, debounce(() => filtrarDosis(), 350), { deep: true })
+watch(horaFiltro, debounce(() => filtrarHora(), 350), { deep: true })
 
 const fueraRangoOptions = [
   { value: 'true', label: 'Sí' },
@@ -147,13 +150,13 @@ const fotoMedRef = ref(null)
 const medCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'parametro', label: 'Parámetro' },
-  { key: 'tipo_agua', label: 'Tipo de agua' },
+  { key: 'parametro', label: 'Parámetro', sortValue: (r) => paramMap.value[r.parametro_id]?.nombre || '' },
+  { key: 'tipo_agua', label: 'Tipo de agua', sortValue: (r) => paramMap.value[r.parametro_id]?.tipo_agua || '' },
   { key: 'valor', label: 'Valor', align: 'right', num: true },
-  { key: 'unidad', label: 'Unidad' },
-  { key: 'responsable', label: 'Responsable' },
+  { key: 'unidad', label: 'Unidad', sortValue: (r) => paramMap.value[r.parametro_id]?.unidad || '' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
   { key: 'fuera_rango', label: 'Estado' },
-  { key: 'foto', label: 'Foto' },
+  { key: 'foto', label: 'Foto', sortable: false },
   { key: 'accion_correctiva', label: 'Acción correctiva' },
 ]
 /* Pestaña "Fuera de rango": estado ACTUAL por parámetro (última medición) */
@@ -214,7 +217,7 @@ const prodCols = [
 const dosisCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'insumo', label: 'Insumo' },
+  { key: 'insumo', label: 'Insumo', sortValue: (r) => prodMap.value[r.elemento_id] || '' },
   { key: 'tasa', label: 'Tasa (bomba)' },
   { key: 'cantidad', label: 'Aplicado', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
@@ -350,11 +353,11 @@ const actCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
   { key: 'tipo', label: 'Tipo' },
-  { key: 'responsable', label: 'Responsable' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
   { key: 'estado', label: 'Estado' },
   { key: 'observaciones', label: 'Observaciones' },
   { key: 'evidencia', label: 'Evidencia' },
-  { key: 'foto', label: 'Foto' },
+  { key: 'foto', label: 'Foto', sortable: false },
 ]
 const actTipos = ['Limpieza', 'Desinfección', 'Tanques', 'Bocatoma', 'Mantenimiento']
 const actTiposOptions = computed(() => actTipos.map((t) => ({ value: t, label: t })))
@@ -416,9 +419,9 @@ watch(tab, (t) => {
 </script>
 
 <template>
-  <div>
+  <div class="view-fit">
     <h1>Planta de tratamiento</h1>
-    <p class="muted">Parámetros, mediciones, dosificaciones, actividades y horas de servicio (RF-37 a RF-54).</p>
+    <p class="muted">Parámetros, mediciones, dosificaciones, actividades y horas de servicio.</p>
 
     <div class="toolbar" style="margin-bottom:1rem">
       <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
@@ -440,7 +443,7 @@ watch(tab, (t) => {
     </div>
 
     <!-- PARÁMETROS -->
-    <div v-if="tab === 'parametros'">
+    <div v-if="tab === 'parametros'" class="tab-panel">
       <div class="toolbar"><button v-if="!esOperario" class="btn btn-primary" @click="openNewParam"><AppIcon name="plus" />Nuevo parámetro</button></div>
       <DataTable :columns="paramCols" :rows="planta.parametros" :loading="planta.loading" empty-text="Sin parámetros configurados.">
         <template #cell="{ row, col }">
@@ -457,7 +460,7 @@ watch(tab, (t) => {
     </div>
 
     <!-- MEDICIONES -->
-    <div v-else-if="tab === 'mediciones'">
+    <div v-else-if="tab === 'mediciones'" class="tab-panel">
       <div class="filter-bar">
         <div class="field"><label>Parámetro</label>
           <SearchableSelect v-model="medFiltro.parametro_id" :options="paramOptions" placeholder="Todos" clearable />
@@ -465,10 +468,8 @@ watch(tab, (t) => {
         <div class="field"><label>Fuera de rango</label>
           <SearchableSelect v-model="medFiltro.fuera_rango" :options="fueraRangoOptions" placeholder="Todos" clearable />
         </div>
-        <div class="field"><label>Desde</label><input class="input" type="date" v-model="medFiltro.fecha_inicio" /></div>
-        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="medFiltro.fecha_fin" /></div>
-        <button class="btn btn-primary" @click="filtrarMed">Filtrar</button>
-        <button class="btn btn-ghost" @click="limpiarMed">Limpiar</button>
+        <div class="field"><label>Desde</label><BaseInput v-model="medFiltro.fecha_inicio" type="date" /></div>
+        <div class="field"><label>Hasta</label><BaseInput v-model="medFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewMed"><AppIcon name="plus" />Registrar medición</button></div>
       <DataTable :columns="medCols" :rows="planta.mediciones" :loading="planta.loading" empty-text="Sin mediciones registradas.">
@@ -495,7 +496,7 @@ watch(tab, (t) => {
     </div>
 
     <!-- FUERA DE RANGO (estado actual por parámetro) -->
-    <div v-else-if="tab === 'fuera'">
+    <div v-else-if="tab === 'fuera'" class="tab-panel">
       <p class="muted">Alerta solo si la <strong>última medición</strong> del parámetro está fuera de rango. Las mediciones pasadas se guardan como historial, pero al ajustar y registrar una medición en rango el parámetro deja de alertar.</p>
       <BaseAlert v-if="!planta.fueraRango.length" type="ok" class="mb-1">Todos los parámetros están dentro de su rango según la última medición. ✔</BaseAlert>
       <DataTable v-else :columns="fueraCols" :rows="planta.fueraRango" :loading="planta.loading" empty-text="Sin parámetros fuera de rango.">
@@ -511,7 +512,7 @@ watch(tab, (t) => {
     </div>
 
     <!-- INSUMOS / QUÍMICOS (solo stock de la planta) -->
-    <div v-else-if="tab === 'productos'">
+    <div v-else-if="tab === 'productos'" class="tab-panel">
       <BaseAlert v-if="!plantaUbi" type="warn" class="mb-1">
         No se encontró la ubicación «Planta de tratamiento» (Inventario → Ubicaciones). Créala para gestionar los químicos de la planta.
       </BaseAlert>
@@ -545,15 +546,13 @@ watch(tab, (t) => {
     </div>
 
     <!-- DOSIFICACIONES -->
-    <div v-else-if="tab === 'dosificaciones'">
+    <div v-else-if="tab === 'dosificaciones'" class="tab-panel">
       <div class="filter-bar">
         <div class="field"><label>Insumo</label>
           <SearchableSelect v-model="dosisFiltro.elemento_id" :options="prodOptionsDisp" placeholder="Todos" clearable />
         </div>
-        <div class="field"><label>Desde</label><input class="input" type="date" v-model="dosisFiltro.fecha_inicio" /></div>
-        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="dosisFiltro.fecha_fin" /></div>
-        <button class="btn btn-primary" @click="filtrarDosis">Filtrar</button>
-        <button class="btn btn-ghost" @click="limpiarDosis">Limpiar</button>
+        <div class="field"><label>Desde</label><BaseInput v-model="dosisFiltro.fecha_inicio" type="date" /></div>
+        <div class="field"><label>Hasta</label><BaseInput v-model="dosisFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewDosis"><AppIcon name="plus" />Registrar dosificación</button>
@@ -586,15 +585,13 @@ watch(tab, (t) => {
     </div>
 
     <!-- ACTIVIDADES -->
-    <div v-else-if="tab === 'actividades'">
+    <div v-else-if="tab === 'actividades'" class="tab-panel">
       <div class="filter-bar">
         <div class="field"><label>Tipo</label>
           <SearchableSelect v-model="actFiltro.tipo" :options="actTiposOptions" placeholder="Todos" clearable />
         </div>
-        <div class="field"><label>Desde</label><input class="input" type="date" v-model="actFiltro.fecha_inicio" /></div>
-        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="actFiltro.fecha_fin" /></div>
-        <button class="btn btn-primary" @click="filtrarAct">Filtrar</button>
-        <button class="btn btn-ghost" @click="limpiarAct">Limpiar</button>
+        <div class="field"><label>Desde</label><BaseInput v-model="actFiltro.fecha_inicio" type="date" /></div>
+        <div class="field"><label>Hasta</label><BaseInput v-model="actFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewAct"><AppIcon name="plus" />Registrar actividad</button></div>
       <DataTable :columns="actCols" :rows="planta.actividades" :loading="planta.loading" empty-text="Sin actividades registradas.">
@@ -619,12 +616,10 @@ watch(tab, (t) => {
     </div>
 
     <!-- HORAS -->
-    <div v-else>
+    <div v-else class="tab-panel">
       <div class="filter-bar">
-        <div class="field"><label>Desde</label><input class="input" type="date" v-model="horaFiltro.fecha_inicio" /></div>
-        <div class="field"><label>Hasta</label><input class="input" type="date" v-model="horaFiltro.fecha_fin" /></div>
-        <button class="btn btn-primary" @click="filtrarHora">Filtrar</button>
-        <button class="btn btn-ghost" @click="limpiarHora">Limpiar</button>
+        <div class="field"><label>Desde</label><BaseInput v-model="horaFiltro.fecha_inicio" type="date" /></div>
+        <div class="field"><label>Hasta</label><BaseInput v-model="horaFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewHora"><AppIcon name="plus" />Registrar horas</button></div>
 

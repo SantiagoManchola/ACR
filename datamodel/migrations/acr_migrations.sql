@@ -201,7 +201,7 @@ CREATE TABLE IF NOT EXISTS suscriptores (
   identificacion    VARCHAR(30),
   codigo_usuario    VARCHAR(30) UNIQUE,
   codigo_facturacion VARCHAR(30),
-  tipo_usuario      ENUM('residencial','comercial','otro') NOT NULL DEFAULT 'residencial',
+  tipo_usuario      ENUM('residencial','comercial','otro','oficial') NOT NULL DEFAULT 'residencial',
   sector            VARCHAR(80),
   direccion         VARCHAR(200),  estado            ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
   created_by        INT,

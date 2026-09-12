@@ -25,7 +25,7 @@ from ..schemas import (
     UbicacionUpdate,
 )
 from ..security import get_current_user, get_db, require_role
-from ..services.common import sellar
+from ..services.common import condiciones_busqueda, sellar
 from ..services import inventario as svc_inventario
 
 router = APIRouter(prefix="/inventario", tags=["Inventario"])
@@ -181,7 +181,7 @@ def listar_elementos(
         ubicacion_id = oficina
     stmt = select(models.ElementoInventario)
     if nombre:
-        stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
+        stmt = stmt.where(*condiciones_busqueda(models.ElementoInventario.nombre, nombre))
     if categoria_id:
         stmt = stmt.where(models.ElementoInventario.categoria_id == categoria_id)
     if categoria_tipo or categoria_nombre:

@@ -41,6 +41,7 @@ class TipoUsuario(str, enum.Enum):
     residencial = "residencial"
     comercial = "comercial"
     otro = "otro"
+    oficial = "oficial"
 
 
 class TipoMovimiento(str, enum.Enum):

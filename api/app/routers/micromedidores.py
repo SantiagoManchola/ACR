@@ -37,10 +37,12 @@ def listar_suscriptores(
     identificacion: str | None = None,
     sector: str | None = None,
     tipo_usuario: str | None = None,
+    con_medidor: bool | None = None,
     db: Session = Depends(get_db), _: models.Usuario = Depends(require_role(_LECTORES))
 ):
     return svc_mm.filtrar_suscriptores(
-        db, nombre=nombre, identificacion=identificacion, sector=sector, tipo_usuario=tipo_usuario
+        db, nombre=nombre, identificacion=identificacion, sector=sector,
+        tipo_usuario=tipo_usuario, con_medidor=con_medidor,
     )
 
 

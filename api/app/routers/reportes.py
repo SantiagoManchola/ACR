@@ -15,6 +15,7 @@ from sqlalchemy import select
 from .. import models
 from ..security import get_current_user, get_db, require_role
 from ..services import inventario as svc_inv, planta as svc_planta, micromedidores as svc_mm
+from ..services.common import condiciones_busqueda
 from ..services.export import a_csv, a_xlsx, a_pdf
 
 router = APIRouter(prefix="/reportes", tags=["Reportes"])
@@ -29,6 +30,8 @@ _LECTORES_PLANTA = ["admin", "operario"]
 
 def _responder(filas, columnas, formato: str, nombre: str, titulo: str):
     formato = (formato or "csv").lower()
+    if formato == "json":
+        return filas
     if formato == "csv":
         return Response(content=a_csv(filas, columnas), media_type="text/csv",
                         headers={"Content-Disposition": f"attachment; filename={nombre}.csv"})
@@ -116,17 +119,17 @@ def reporte_inventario(
                 continue
             total, detalle = _stock(e)
             datos.append({
-                "id": e.id, "nombre": e.nombre,
+                "nombre": e.nombre,
                 "categoria": cats.get(e.categoria_id).nombre,
                 "unidad": e.unidad or "", "cantidad": total, "minimo": e.minimo,
                 "ubicacion": detalle, "estado": e.estado,
             })
-        columnas = ["id", "nombre", "categoria", "unidad", "cantidad", "minimo", "ubicacion", "estado"]
+        columnas = ["nombre", "categoria", "unidad", "cantidad", "minimo", "ubicacion", "estado"]
         return _responder(datos, columnas, formato, "reporte_insumos", "Insumos/Químicos ACR")
 
     stmt = select(models.ElementoInventario)
     if nombre:
-        stmt = stmt.where(models.ElementoInventario.nombre.ilike(f"%{nombre}%"))
+        stmt = stmt.where(*condiciones_busqueda(models.ElementoInventario.nombre, nombre))
     if categoria_id:
         stmt = stmt.where(models.ElementoInventario.categoria_id == categoria_id)
     if estado:
@@ -138,12 +141,12 @@ def reporte_inventario(
             continue
         total, detalle = _stock(e)
         datos.append({
-            "tipo": "Elemento", "id": e.id, "nombre": e.nombre,
+            "tipo": "Elemento", "nombre": e.nombre,
             "categoria": cats.get(e.categoria_id).nombre if e.categoria_id in cats else "—",
             "ubicacion": detalle, "cantidad": total, "unidad": e.unidad or "",
             "minimo": e.minimo, "valor": e.valor, "estado": e.estado,
         })
-    columnas = ["tipo", "id", "nombre", "categoria", "ubicacion", "cantidad", "unidad", "minimo", "valor", "estado"]
+    columnas = ["tipo", "nombre", "categoria", "ubicacion", "cantidad", "unidad", "minimo", "valor", "estado"]
     return _responder(datos, columnas, formato, "reporte_inventario", "Inventario ACR")
 
 
@@ -165,31 +168,37 @@ def reporte_micromedidores(
     if tipo == "suscriptores":
         filas = svc_mm.filtrar_suscriptores(
             db, nombre=nombre, identificacion=identificacion, sector=sector, tipo_usuario=tipo_usuario)
-        datos = [{"id": s.id, "nombre": s.nombre, "identificacion": s.identificacion or "",
+        datos = [{"nombre": s.nombre, "codigo_usuario": s.codigo_usuario or "",
+                  "codigo_facturacion": s.codigo_facturacion or "",
+                  "identificacion": s.identificacion or "",
                   "sector": s.sector or "", "tipo_usuario": s.tipo_usuario,
                   "direccion": s.direccion or ""} for s in filas]
-        columnas = ["id", "nombre", "identificacion", "sector", "tipo_usuario", "direccion"]
+        columnas = ["nombre", "codigo_usuario", "codigo_facturacion", "identificacion",
+                    "sector", "tipo_usuario", "direccion"]
         return _responder(datos, columnas, formato, "reporte_suscriptores", "Suscriptores ACR")
 
     if tipo == "micromedidores":
         filas = svc_mm.filtrar_micromedidores(db, serial=nombre, suscriptor_id=suscriptor_id)
         sus_map = {s.id: s.nombre for s in db.execute(select(models.Suscriptor)).scalars().all()}
-        datos = [{"id": m.id, "serial": m.serial, "tipo": m.tipo or "",
+        datos = [{"serial": m.serial, "tipo": m.tipo or "",
                   "suscriptor": sus_map.get(m.suscriptor_id, "—"),
                   "direccion": m.direccion or "", "fecha_instalacion": m.fecha_instalacion} for m in filas]
-        columnas = ["id", "serial", "tipo", "suscriptor", "direccion", "fecha_instalacion"]
+        columnas = ["serial", "tipo", "suscriptor", "direccion", "fecha_instalacion"]
         return _responder(datos, columnas, formato, "reporte_micromedidores", "Micromedidores ACR")
 
     # lecturas (consumo)
     filas = svc_mm.filtrar_lecturas(db, micromedidor_id=micromedidor_id, suscriptor_id=suscriptor_id,
                                     sector=sector, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
     sus_map = {s.id: s.nombre for s in db.execute(select(models.Suscriptor)).scalars().all()}
-    datos = [{"fecha": l.fecha, "suscriptor": sus_map.get(l.suscriptor_id, l.suscriptor_id),
-              "micromedidor_id": l.micromedidor_id, "lectura": l.lectura, "consumo": l.consumo,
+    med_map = {m.id: m.serial for m in db.execute(select(models.Micromedidor)).scalars().all()}
+    datos = [{"fecha": l.fecha, "hora": l.hora,
+              "suscriptor": sus_map.get(l.suscriptor_id, l.suscriptor_id),
+              "medidor": med_map.get(l.micromedidor_id, l.micromedidor_id),
+              "lectura": l.lectura, "consumo": l.consumo,
               "promedio_usado": l.promedio_usado, "irregular": l.irregular, "novedad": l.novedad or "",
               "foto_url": l.foto_url or ""}
              for l in filas]
-    columnas = ["fecha", "suscriptor", "micromedidor_id", "lectura", "consumo", "promedio_usado", "irregular", "novedad", "foto_url"]
+    columnas = ["fecha", "hora", "suscriptor", "medidor", "lectura", "consumo", "promedio_usado", "irregular", "novedad", "foto_url"]
     return _responder(datos, columnas, formato, "reporte_consumo", "Consumo micromedidores ACR")
 
 
@@ -218,46 +227,46 @@ def reporte_planta(
         datos = []
         for e in filas:
             total, _ = _stock_resumen(db, e)
-            datos.append({"id": e.id, "nombre": e.nombre, "unidad": e.unidad or "",
+            datos.append({"nombre": e.nombre, "unidad": e.unidad or "",
                           "cantidad": total, "minimo": e.minimo})
-        columnas = ["id", "nombre", "unidad", "cantidad", "minimo"]
+        columnas = ["nombre", "unidad", "cantidad", "minimo"]
         return _responder(datos, columnas, formato, "reporte_insumos_planta", "Insumos/Químicos Planta ACR")
 
     if tipo == "actividades":
         filas = svc_planta.filtrar_actividades(db, tipo=None, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
         usuario_map = {u.id: u.nombre for u in db.execute(select(models.Usuario)).scalars().all()}
-        datos = [{"id": a.id, "tipo": a.tipo, "fecha": a.fecha, "hora": a.hora,
+        datos = [{"tipo": a.tipo, "fecha": a.fecha, "hora": a.hora,
                   "responsable": usuario_map.get(a.responsable_id, "—"),
                   "observaciones": a.observaciones or "", "foto_url": a.foto_url or ""} for a in filas]
-        columnas = ["id", "tipo", "fecha", "hora", "responsable", "observaciones", "foto_url"]
+        columnas = ["tipo", "fecha", "hora", "responsable", "observaciones", "foto_url"]
         return _responder(datos, columnas, formato, "reporte_actividades", "Actividades Planta ACR")
 
     if tipo == "dosificaciones":
         filas = svc_planta.filtrar_dosificaciones(db, elemento_id=elemento_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
         elem_map = {e.id: e.nombre for e in db.execute(select(models.ElementoInventario)).scalars().all()}
-        datos = [{"id": d.id, "fecha": d.fecha, "hora": d.hora,
+        datos = [{"fecha": d.fecha, "hora": d.hora,
                   "insumo": elem_map.get(d.elemento_id, d.elemento_id),
                   "cantidad": d.cantidad, "unidad": d.unidad or "",
                   "tasa": d.tasa, "unidad_tasa": d.unidad_tasa or "",
                   "observaciones": d.observaciones or ""} for d in filas]
-        columnas = ["id", "fecha", "hora", "insumo", "cantidad", "unidad", "tasa", "unidad_tasa", "observaciones"]
+        columnas = ["fecha", "hora", "insumo", "cantidad", "unidad", "tasa", "unidad_tasa", "observaciones"]
         return _responder(datos, columnas, formato, "reporte_dosificaciones", "Dosificaciones ACR")
 
     if tipo == "horas":
         filas = svc_planta.filtrar_horas(db, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
         usuario_map = {u.id: u.nombre for u in db.execute(select(models.Usuario)).scalars().all()}
-        datos = [{"id": h.id, "fecha": h.fecha, "horas": h.horas,
+        datos = [{"fecha": h.fecha, "horas": h.horas,
                   "responsable": usuario_map.get(h.responsable_id, "—"),
                   "observaciones": h.observaciones or ""} for h in filas]
-        columnas = ["id", "fecha", "horas", "responsable", "observaciones"]
+        columnas = ["fecha", "horas", "responsable", "observaciones"]
         return _responder(datos, columnas, formato, "reporte_horas", "Horas de servicio ACR")
 
     # mediciones (por defecto)
     filas = svc_planta.filtrar_mediciones(db, parametro_id=parametro_id, fuera_rango=fuera_rango,
                                           fecha_inicio=fecha_inicio, fecha_fin=fecha_fin)
     param_map = {p.id: p.nombre for p in db.execute(select(models.ParametroPlanta)).scalars().all()}
-    datos = [{"id": m.id, "fecha": m.fecha, "parametro": param_map.get(m.parametro_id, m.parametro_id),
+    datos = [{"fecha": m.fecha, "hora": m.hora, "parametro": param_map.get(m.parametro_id, m.parametro_id),
               "valor": m.valor, "fuera_rango": m.fuera_rango,
               "accion_correctiva": m.accion_correctiva or "", "foto_url": m.foto_url or ""} for m in filas]
-    columnas = ["id", "fecha", "parametro", "valor", "fuera_rango", "accion_correctiva", "foto_url"]
+    columnas = ["fecha", "hora", "parametro", "valor", "fuera_rango", "accion_correctiva", "foto_url"]
     return _responder(datos, columnas, formato, "reporte_planta", "Planta de tratamiento ACR")

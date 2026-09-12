@@ -8,8 +8,10 @@ import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import BaseInput from '../components/BaseInput.vue'
 import client, { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
+import { debounce } from '../utils/debounce'
 
 const inv = useInventarioStore()
 const auth = useAuthStore()
@@ -75,7 +77,6 @@ function aplicarFiltros() {
   return f
 }
 function filtrar() { inv.loadElementos(aplicarFiltros()) }
-function limpiarFiltros() { filtros.value = { nombre: '', categoria_id: '', ubicacion_id: '' }; if (esAdministrativo.value) forzarOficina(); inv.loadElementos(aplicarFiltros()) }
 
 /* Filtros de traslados */
 /* Filtros de traslados (fechas por defecto: hoy en Colombia) */
@@ -90,7 +91,6 @@ function aplicarFiltrosTras() {
   return f
 }
 function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras()) }
-function limpiarFiltrosTras() { filtrosTras.value = { elemento_id: '', origen_id: '', destino_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; if (esAdministrativo.value) forzarOficina(); filtrarTras() }
 
 /* Filtros de movimientos (fechas por defecto: hoy en Colombia) */
 const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
@@ -104,7 +104,11 @@ function aplicarFiltrosMov() {
   return f
 }
 function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov()) }
-function limpiarFiltrosMov() { filtrosMov.value = { elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; if (esAdministrativo.value) forzarOficina(); filtrarMov() }
+
+/* Auto-búsqueda con debounce al cambiar cualquier filtro */
+watch(filtros, debounce(() => filtrar(), 350), { deep: true })
+watch(filtrosTras, debounce(() => filtrarTras(), 350), { deep: true })
+watch(filtrosMov, debounce(() => filtrarMov(), 350), { deep: true })
 
 const movTipoOptions = [
   { value: 'entrada', label: 'Entrada' },
@@ -217,8 +221,8 @@ const movForm = ref({ ubicacion_id: null, cantidad: '', motivo: '', observacione
 
 const elementosCols = [
   { key: 'nombre', label: 'Elemento' },
-  { key: 'categoria', label: 'Categoría' },
-  { key: 'ubicaciones', label: 'Ubicaciones' },
+  { key: 'categoria', label: 'Categoría', sortValue: (r) => catMap.value[r.categoria_id] || '' },
+  { key: 'ubicaciones', label: 'Ubicaciones', sortable: false },
   { key: 'cantidad', label: 'Cant. total', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad' },
   { key: 'minimo', label: 'Mín.', align: 'right' },
@@ -226,7 +230,7 @@ const elementosCols = [
 const movCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Elemento' },
+  { key: 'elemento', label: 'Elemento', sortValue: (r) => inv.elementos.find((e) => e.id === r.elemento_id)?.nombre || '' },
   { key: 'ubicacion', label: 'Ubicación' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
@@ -344,11 +348,11 @@ async function saveTras() {
 const trasladoCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Producto' },
+  { key: 'elemento', label: 'Producto', sortValue: (r) => elemMap.value[r.elemento_id]?.nombre || '' },
   { key: 'origen', label: 'Origen' },
   { key: 'destino', label: 'Destino' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
-  { key: 'responsable', label: 'Responsable' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
 ]
 const userMap = computed(() => Object.fromEntries((auth.usuarios || []).map((u) => [u.id, u.nombre])))
 const elemMap = computed(() => Object.fromEntries(inv.elementos.map((e) => [e.id, e])))
@@ -389,9 +393,9 @@ watch(() => tab.value, (t) => {
 </script>
 
 <template>
-  <div>
+  <div class="view-fit">
     <h1>Inventario</h1>
-    <p class="muted">Productos, ubicaciones, traslados, movimientos y alertas de existencias (RF-06 a RF-20).</p>
+    <p class="muted">Productos, ubicaciones, traslados, movimientos y alertas de existencias.</p>
     <p v-if="esAdministrativo" class="muted">Viendo inventario de <strong>{{ oficinaUbi?.nombre || 'Oficina' }}</strong>: tu rol solo tiene alcance a esa ubicación.</p>
 
     <div class="tabs">
@@ -407,11 +411,11 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- ELEMENTOS -->
-    <div v-if="tab === 'elementos'">
+    <div v-if="tab === 'elementos'" class="tab-panel">
       <div class="filter-bar">
         <div class="field">
           <label>Nombre</label>
-          <input class="input" v-model="filtros.nombre" placeholder="Buscar por nombre…" />
+          <BaseInput v-model="filtros.nombre" placeholder="Buscar por nombre…" />
         </div>
         <div class="field">
           <label>Categoría</label>
@@ -420,10 +424,6 @@ watch(() => tab.value, (t) => {
         <div class="field">
           <label>Ubicación</label>
           <SearchableSelect v-model="filtros.ubicacion_id" :options="ubiOptions" placeholder="Todas" clearable :disabled="esAdministrativo" />
-        </div>
-        <div class="field filter-actions">
-          <button class="btn btn-primary" @click="filtrar"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltros"><AppIcon name="refresh" />Limpiar</button>
         </div>
       </div>
       <div class="toolbar">
@@ -461,7 +461,7 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- CATEGORÍAS -->
-    <div v-else-if="tab === 'categorias'">
+    <div v-else-if="tab === 'categorias'" class="tab-panel">
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewCat"><AppIcon name="plus" />Nueva categoría</button>
         <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
@@ -475,7 +475,7 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- UBICACIONES -->
-    <div v-else-if="tab === 'ubicaciones'">
+    <div v-else-if="tab === 'ubicaciones'" class="tab-panel">
       <div class="toolbar">
         <button v-if="esAdmin" class="btn btn-primary" @click="openNewUbi"><AppIcon name="plus" />Nueva ubicación</button>
         <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
@@ -495,14 +495,14 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- TRASLADOS -->
-    <div v-else-if="tab === 'traslados'">
+    <div v-else-if="tab === 'traslados'" class="tab-panel">
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewTras"><AppIcon name="swap" />Nuevo traslado</button>
       </div>
       <div class="filter-bar">
         <div class="field">
           <label>Producto</label>
-          <SearchableSelect v-model="filtrosTras.elemento_id" :options="elementoOptions" placeholder="Todos" />
+          <SearchableSelect v-model="filtrosTras.elemento_id" :options="elementoOptions" placeholder="Todos" clearable />
         </div>
         <div class="field" v-if="!esAdministrativo">
           <label>Origen</label>
@@ -515,15 +515,11 @@ watch(() => tab.value, (t) => {
         <p v-else class="muted" style="align-self:end">Alcance: traslados donde participa {{ oficinaUbi?.nombre || 'Oficina' }} (los lugares se muestran solo como información).</p>
         <div class="field">
           <label>Desde</label>
-          <input class="input" type="date" v-model="filtrosTras.fecha_inicio" />
+          <BaseInput v-model="filtrosTras.fecha_inicio" type="date" />
         </div>
         <div class="field">
           <label>Hasta</label>
-          <input class="input" type="date" v-model="filtrosTras.fecha_fin" />
-        </div>
-        <div class="field filter-actions">
-          <button class="btn btn-primary" @click="filtrarTras"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltrosTras"><AppIcon name="refresh" />Limpiar</button>
+          <BaseInput v-model="filtrosTras.fecha_fin" type="date" />
         </div>
       </div>
       <DataTable :columns="trasladoCols" :rows="inv.traslados" :loading="inv.loading" empty-text="Sin traslados registrados.">
@@ -539,11 +535,11 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- MOVIMIENTOS -->
-    <div v-else-if="tab === 'movimientos'">
+    <div v-else-if="tab === 'movimientos'" class="tab-panel">
       <div class="filter-bar">
         <div class="field">
           <label>Elemento</label>
-          <SearchableSelect v-model="filtrosMov.elemento_id" :options="elementoOptions" placeholder="Todos" />
+          <SearchableSelect v-model="filtrosMov.elemento_id" :options="elementoOptions" placeholder="Todos" clearable />
         </div>
         <div class="field">
           <label>Ubicación</label>
@@ -555,15 +551,11 @@ watch(() => tab.value, (t) => {
         </div>
         <div class="field">
           <label>Desde</label>
-          <input class="input" type="date" v-model="filtrosMov.fecha_inicio" />
+          <BaseInput v-model="filtrosMov.fecha_inicio" type="date" />
         </div>
         <div class="field">
           <label>Hasta</label>
-          <input class="input" type="date" v-model="filtrosMov.fecha_fin" />
-        </div>
-        <div class="field filter-actions">
-          <button class="btn btn-primary" @click="filtrarMov"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltrosMov"><AppIcon name="refresh" />Limpiar</button>
+          <BaseInput v-model="filtrosMov.fecha_fin" type="date" />
         </div>
       </div>
       <DataTable :columns="movCols" :rows="inv.movimientos" :loading="inv.loading" empty-text="Sin movimientos registrados.">
@@ -578,7 +570,7 @@ watch(() => tab.value, (t) => {
     </div>
 
     <!-- ALERTAS -->
-    <div v-else>
+    <div v-else class="tab-panel">
       <BaseAlert v-if="!inv.alertas.length" type="ok" class="mb-1">No hay elementos bajo el mínimo configurado.</BaseAlert>
       <DataTable v-else :columns="alertCols" :rows="inv.alertas" :loading="inv.loading" empty-text="Sin alertas.">
         <template #cell="{ row, col }">

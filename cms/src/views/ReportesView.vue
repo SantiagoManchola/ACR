@@ -1,12 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import client from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { hoyColombia, formatoOptions } from '../utils/format'
+import { debounce } from '../utils/debounce'
 import DataTable from '../components/DataTable.vue'
 import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import BaseInput from '../components/BaseInput.vue'
 
 const auth = useAuthStore()
 const modulo = ref('inventario')
@@ -22,9 +24,9 @@ const error = ref('')
 const ok = ref('')
 
 const modulos = [
-  { id: 'inventario', label: 'Inventario', cols: ['id', 'nombre', 'categoria_id', 'ubicacion', 'cantidad', 'unidad', 'minimo', 'estado'] },
-  { id: 'consumo', label: 'Consumo micromedidores', cols: ['lectura_id', 'fecha', 'sector', 'suscriptor', 'micromedidor_id', 'lectura', 'consumo', 'promedio_usado', 'irregular'] },
-  { id: 'planta', label: 'Planta de tratamiento', cols: ['medicion_id', 'fecha', 'parametro', 'valor', 'fuera_rango', 'accion_correctiva'] },
+  { id: 'inventario', endpoint: '/reportes/inventario', tipo: 'elementos', label: 'Inventario', cols: ['tipo', 'nombre', 'categoria', 'ubicacion', 'cantidad', 'unidad', 'minimo', 'valor', 'estado'] },
+  { id: 'consumo', endpoint: '/reportes/micromedidores', tipo: 'lecturas', label: 'Consumo micromedidores', cols: ['fecha', 'hora', 'suscriptor', 'medidor', 'lectura', 'consumo', 'promedio_usado', 'irregular', 'novedad'] },
+  { id: 'planta', endpoint: '/reportes/planta', tipo: 'mediciones', label: 'Planta de tratamiento', cols: ['fecha', 'hora', 'parametro', 'valor', 'fuera_rango', 'accion_correctiva'] },
 ]
 const moduloOptions = computed(() => modulos.map((m) => ({ value: m.id, label: m.label })))
 const fueraRangoOptions = [
@@ -32,8 +34,10 @@ const fueraRangoOptions = [
   { value: 'false', label: 'Solo en rango' },
 ]
 
+const moduloActual = computed(() => modulos.find((m) => m.id === modulo.value) || modulos[0])
+
 function buildParams() {
-  const p = {}
+  const p = { tipo: moduloActual.value.tipo }
   if (modulo.value === 'consumo' && sector.value.trim()) p.sector = sector.value.trim()
   if (modulo.value === 'planta' && fueraRango.value !== '') p.fuera_rango = fueraRango.value === 'true'
   if (fechaInicio.value) p.fecha_inicio = fechaInicio.value
@@ -42,16 +46,16 @@ function buildParams() {
 }
 
 function colLabel(c) {
-  const map = { id: 'ID', nombre: 'Nombre', categoria_id: 'Categoría', ubicacion: 'Ubicación', cantidad: 'Cantidad', unidad: 'Unidad', minimo: 'Mínimo', estado: 'Estado', lectura_id: 'Lectura', fecha: 'Fecha', sector: 'Sector', suscriptor: 'Suscriptor', micromedidor_id: 'Medidor', lectura: 'Lectura', consumo: 'Consumo', promedio_usado: 'Promedio', irregular: 'Irregular', medicion_id: 'Medición', parametro: 'Parámetro', valor: 'Valor', fuera_rango: 'Fuera de rango', accion_correctiva: 'Acción correctiva' }
+  const map = { nombre: 'Nombre', categoria: 'Categoría', ubicacion: 'Ubicación', cantidad: 'Cantidad', unidad: 'Unidad', minimo: 'Mínimo', estado: 'Estado', fecha: 'Fecha', hora: 'Hora', sector: 'Sector', suscriptor: 'Suscriptor', medidor: 'Medidor', lectura: 'Lectura', consumo: 'Consumo', promedio_usado: 'Estimada (promedio)', irregular: 'Irregular', novedad: 'Novedad', parametro: 'Parámetro', valor: 'Valor', fuera_rango: 'Fuera de rango', accion_correctiva: 'Acción correctiva', tipo: 'Tipo', direccion: 'Dirección', codigo_usuario: 'Código usuario', codigo_facturacion: 'Código facturación', identificacion: 'Identificación', tipo_usuario: 'Tipo de usuario', serial: 'Serial', fecha_instalacion: 'Instalación', insumo: 'Insumo', tasa: 'Tasa', unidad_tasa: 'Unidad tasa', observaciones: 'Observaciones', responsable: 'Responsable', horas: 'Horas', foto_url: 'Foto', valor: 'Valor' }
   return map[c] || c
 }
 
 async function verPreview() {
   error.value = ''; ok.value = ''; loading.value = true
   try {
-    const { data } = await client.get(`/reportes/${modulo.value}`, { params: { ...buildParams(), formato: 'json' } })
+    const { data } = await client.get(moduloActual.value.endpoint, { params: { ...buildParams(), formato: 'json' } })
     preview.value = data
-    const keys = data.length ? Object.keys(data[0]) : modulos.find((m) => m.id === modulo.value).cols
+    const keys = data.length ? Object.keys(data[0]) : moduloActual.value.cols
     previewCols.value = keys.map((k) => ({ key: k, label: colLabel(k) }))
   } catch (e) {
     error.value = e.response?.data?.detail || 'No se pudo generar la vista previa'
@@ -61,7 +65,7 @@ async function verPreview() {
 async function exportar() {
   error.value = ''; ok.value = ''; loading.value = true
   try {
-    const { data } = await client.get(`/reportes/${modulo.value}`, {
+    const { data } = await client.get(moduloActual.value.endpoint, {
       params: { ...buildParams(), formato: formato.value },
       responseType: 'blob',
     })
@@ -78,15 +82,19 @@ async function exportar() {
 }
 
 const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes(auth.rol))
+
+/* La vista previa se regenera sola (debounce) al cambiar módulo, filtros o fechas */
+const verPreviewDeb = debounce(() => verPreview(), 400)
+watch([modulo, sector, fueraRango, fechaInicio, fechaFin], () => { if (puedeVer.value) verPreviewDeb() })
 </script>
 
 <template>
   <div v-if="!puedeVer">
     <BaseAlert type="bad">Tu rol no tiene permiso para ver reportes.</BaseAlert>
   </div>
-  <div v-else>
+  <div v-else class="view-fit">
     <h1>Reportes</h1>
-    <p class="muted">Filtre por módulo, fecha y sector, y exporte en CSV, Excel o PDF (RF-20, RF-36, RF-54).</p>
+    <p class="muted">Filtre por módulo, fecha y sector, y exporte en CSV, Excel o PDF.</p>
 
     <div class="card">
       <div class="toolbar">
@@ -96,7 +104,7 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
         </div>
         <div class="field" style="margin:0" v-if="modulo === 'consumo'">
           <label>Sector / barrio</label>
-          <input class="input" v-model="sector" placeholder="Ej. Ricaurte" />
+          <BaseInput v-model="sector" placeholder="Escriba para filtrar…" />
         </div>
         <div class="field" style="margin:0" v-if="modulo === 'planta'">
           <label>Estado</label>
@@ -104,13 +112,12 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
         </div>
         <div class="field" style="margin:0">
           <label>Desde</label>
-          <input class="input" type="date" v-model="fechaInicio" />
+          <BaseInput v-model="fechaInicio" type="date" />
         </div>
         <div class="field" style="margin:0">
           <label>Hasta</label>
-          <input class="input" type="date" v-model="fechaFin" />
+          <BaseInput v-model="fechaFin" type="date" />
         </div>
-        <button class="btn btn-ghost" @click="verPreview"><AppIcon name="search" />Vista previa</button>
         <button class="btn btn-ghost" @click="verPreview"><AppIcon name="refresh" />Refrescar</button>
       </div>
 
@@ -123,10 +130,17 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
       <BaseAlert v-if="error" type="bad" class="mb-1">{{ error }}</BaseAlert>
       <BaseAlert v-if="ok" type="ok" class="mb-1">{{ ok }}</BaseAlert>
 
-      <div v-if="preview.length" class="mt-2">
+      <div v-if="preview.length" class="mt-2 preview-wrap">
         <h3>Vista previa ({{ preview.length }} filas)</h3>
         <DataTable :columns="previewCols" :rows="preview" :loading="loading" />
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* La tarjeta y la vista previa se ajustan al alto del panel: la tabla scrollea dentro
+   (los estilos de .data-table/.table-wrap viven en theme.css para todo el sitio) */
+.view-fit .card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.preview-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+</style>

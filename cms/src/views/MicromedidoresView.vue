@@ -8,10 +8,12 @@ import BaseAlert from '../components/BaseAlert.vue'
 import AppIcon from '../components/AppIcon.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import SearchableSelect from '../components/SearchableSelect.vue'
+import BaseInput from '../components/BaseInput.vue'
 import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
+import { debounce } from '../utils/debounce'
 
 const mm = useMicromedidoresStore()
 const auth = useAuthStore()
@@ -34,6 +36,7 @@ const sectorActivosOptions = computed(() => mm.sectores
 const tipoUsuarioOptions = [
   { value: 'residencial', label: 'Residencial' },
   { value: 'comercial', label: 'Comercial' },
+  { value: 'oficial', label: 'Oficial' },
   { value: 'otro', label: 'Otro' },
 ]
 
@@ -71,23 +74,34 @@ async function doDel() {
 }
 function refreshAll() { return Promise.all([mm.loadSuscriptores(), mm.loadMicromedidores(), mm.loadLecturas()]) }
 
-/* ---------------- Filtros ---------------- */
-const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '' })
+/* ---------------- Filtros (auto-búsqueda con debounce) ---------------- */
+const conMedidorOptions = [
+  { value: true, label: 'Con medidor' },
+  { value: false, label: 'Sin medidor' },
+]
+const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '', con_medidor: null })
 const filtrosMm = ref({ serial: '', suscriptor_id: '', sector: '', condicion: '' })
 const filtrosLec = ref({ sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 
-function limpiarFiltrosSus() { filtrosSus.value = { nombre: '', identificacion: '', sector: '', tipo_usuario: '' }; mm.loadSuscriptores() }
-function limpiarFiltrosMm() { filtrosMm.value = { serial: '', suscriptor_id: '', sector: '', condicion: '' }; mm.loadMicromedidores() }
-function limpiarFiltrosLec() { filtrosLec.value = { sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() }; buscarLec() }
-
 function soloNoVacios(obj) {
   const out = {}
-  for (const [k, v] of Object.entries(obj)) if (v !== '' && v !== null && v !== undefined) out[k] = v
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === '' || v === null || v === undefined) continue
+    out[k] = v
+  }
   return out
 }
 function buscarSus() { mm.loadSuscriptores(soloNoVacios(filtrosSus.value)) }
 function buscarMm() { mm.loadMicromedidores(soloNoVacios(filtrosMm.value)) }
 function buscarLec() { mm.loadLecturas(soloNoVacios(filtrosLec.value)) }
+
+/* Al cambiar cualquier filtro se recarga solo (350 ms después de dejar de escribir) */
+const buscarSusDeb = debounce(buscarSus)
+const buscarMmDeb = debounce(buscarMm)
+const buscarLecDeb = debounce(buscarLec)
+watch(filtrosSus, buscarSusDeb, { deep: true })
+watch(filtrosMm, buscarMmDeb, { deep: true })
+watch(filtrosLec, buscarLecDeb, { deep: true })
 
 /* ---------------- Reportes ---------------- */
 const formatoReporte = ref('csv')
@@ -198,7 +212,7 @@ const mmForm = ref(emptyMm())
 const mmCols = [
   { key: 'serial', label: 'Serial' },
   { key: 'tipo', label: 'Tipo' },
-  { key: 'suscriptor', label: 'Suscriptor' },
+  { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
   { key: 'direccion', label: 'Dirección' },
   { key: 'fecha_instalacion', label: 'Instalación' },
   { key: 'condicion', label: 'Condición' },
@@ -245,12 +259,12 @@ const fotoLecRef = ref(null)
 const lecCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'suscriptor', label: 'Suscriptor' },
-  { key: 'micromedidor_id', label: 'Medidor' },
+  { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
+  { key: 'micromedidor_id', label: 'Medidor', sortValue: (r) => mmMap.value[r.micromedidor_id] || '' },
   { key: 'lectura', label: 'Lectura', align: 'right' },
   { key: 'consumo', label: 'Consumo', align: 'right' },
-  { key: 'tipo', label: 'Tipo' },
-  { key: 'foto', label: 'Foto' },
+  { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
+  { key: 'foto', label: 'Foto', sortable: false },
   { key: 'novedad', label: 'Novedad' },
 ]
 const detailLecCols = [
@@ -258,8 +272,8 @@ const detailLecCols = [
   { key: 'hora', label: 'Hora' },
   { key: 'lectura', label: 'Lectura', align: 'right', num: true },
   { key: 'consumo', label: 'Consumo', align: 'right', num: true },
-  { key: 'tipo', label: 'Tipo' },
-  { key: 'foto', label: 'Foto' },
+  { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
+  { key: 'foto', label: 'Foto', sortable: false },
   { key: 'novedad', label: 'Novedad' },
 ]
 const detailIsSus = computed(() => !!mm.historial && !!mm.historial.suscriptor)
@@ -471,9 +485,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div class="view-fit">
     <h1>Micromedidores</h1>
-    <p class="muted">Suscriptores, medidores y lecturas (RF-21 a RF-36).</p>
+    <p class="muted">Suscriptores, medidores y lecturas.</p>
     <BaseAlert v-if="repError" type="bad" class="mb-1">{{ repError }}</BaseAlert>
 
     <div class="tabs">
@@ -484,19 +498,18 @@ onMounted(async () => {
     </div>
 
     <!-- SUSCRIPTORES -->
-    <div v-if="tab === 'suscriptores'">
+    <div v-if="tab === 'suscriptores'" class="tab-panel">
       <div class="filter-bar">
-        <div class="field"><label>Nombre</label><input class="input" v-model="filtrosSus.nombre" /></div>
-        <div class="field"><label>Identificación</label><input class="input" v-model="filtrosSus.identificacion" /></div>
+        <div class="field"><label>Nombre</label><BaseInput v-model="filtrosSus.nombre" placeholder="Escriba para buscar…" /></div>
+        <div class="field"><label>Identificación</label><BaseInput v-model="filtrosSus.identificacion" placeholder="Escriba para buscar…" /></div>
         <div class="field"><label>Sector</label>
           <SearchableSelect v-model="filtrosSus.sector" :options="sectorOptions" placeholder="Todos los sectores" clearable />
         </div>
         <div class="field"><label>Tipo de usuario</label>
           <SearchableSelect v-model="filtrosSus.tipo_usuario" :options="tipoUsuarioOptions" placeholder="Todos" clearable />
         </div>
-        <div class="field" style="justify-content:flex-end">
-          <button class="btn btn-primary" @click="buscarSus"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltrosSus"><AppIcon name="x" />Limpiar</button>
+        <div class="field"><label>Medidor</label>
+          <SearchableSelect v-model="filtrosSus.con_medidor" :options="conMedidorOptions" placeholder="Todos" clearable />
         </div>
       </div>
       <div class="toolbar">
@@ -524,9 +537,9 @@ onMounted(async () => {
     </div>
 
     <!-- MICROMEDIDORES -->
-    <div v-else-if="tab === 'micromedidores'">
+    <div v-else-if="tab === 'micromedidores'" class="tab-panel">
       <div class="filter-bar">
-        <div class="field"><label>Serial</label><input class="input" v-model="filtrosMm.serial" /></div>
+        <div class="field"><label>Serial</label><BaseInput v-model="filtrosMm.serial" placeholder="Escriba para buscar…" /></div>
         <div class="field"><label>Sector</label>
           <SearchableSelect v-model="filtrosMm.sector" :options="sectorOptions" placeholder="Todos los sectores" clearable />
         </div>
@@ -535,10 +548,6 @@ onMounted(async () => {
         </div>
         <div class="field"><label>Condición</label>
           <SearchableSelect v-model="filtrosMm.condicion" :options="condicionOptions" placeholder="Todas" clearable />
-        </div>
-        <div class="field" style="justify-content:flex-end">
-          <button class="btn btn-primary" @click="buscarMm"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltrosMm"><AppIcon name="x" />Limpiar</button>
         </div>
       </div>
       <div class="toolbar">
@@ -567,17 +576,13 @@ onMounted(async () => {
     </div>
 
     <!-- LECTURAS -->
-    <div v-else-if="tab === 'lecturas'">
+    <div v-else-if="tab === 'lecturas'" class="tab-panel">
       <div class="filter-bar">
         <div class="field"><label>Sector</label>
           <SearchableSelect v-model="filtrosLec.sector" :options="sectorOptions" placeholder="Todos los sectores" clearable />
         </div>
-        <div class="field"><label>Fecha inicio</label><input class="input" type="date" v-model="filtrosLec.fecha_inicio" /></div>
-        <div class="field"><label>Fecha fin</label><input class="input" type="date" v-model="filtrosLec.fecha_fin" /></div>
-        <div class="field" style="justify-content:flex-end">
-          <button class="btn btn-primary" @click="buscarLec"><AppIcon name="search" />Filtrar</button>
-          <button class="btn btn-ghost" @click="limpiarFiltrosLec"><AppIcon name="x" />Limpiar</button>
-        </div>
+        <div class="field"><label>Fecha inicio</label><BaseInput v-model="filtrosLec.fecha_inicio" type="date" /></div>
+        <div class="field"><label>Fecha fin</label><BaseInput v-model="filtrosLec.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewLec"><AppIcon name="plus" />Registrar lectura</button>
@@ -604,7 +609,7 @@ onMounted(async () => {
     </div>
 
     <!-- SECTORES (catálogo, solo admin) -->
-    <div v-else-if="tab === 'sectores'">
+    <div v-else-if="tab === 'sectores'" class="tab-panel">
       <p class="muted">Catálogo de sectores para clasificar suscriptores. Solo el admin puede agregar, renombrar o inactivar. Un sector inactivo ya no es asignable, pero el historial se conserva.</p>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewSec"><AppIcon name="plus" />Nuevo sector</button>
@@ -705,7 +710,7 @@ onMounted(async () => {
         <label class="flex center gap-1" style="font-weight:600;cursor:pointer">
           <input type="checkbox" v-model="lecForm.estimada" /> Lectura estimada — no fue posible tomar la medición (el sistema calcula el valor del medidor con la lectura previa + promedio histórico)
         </label>
-        <p class="hint">Según el procedimiento de Acuaricaurte, ante la falta de lectura se usa el promedio histórico (RF-02/RF-31).</p>
+        <p class="hint">Según el procedimiento de Acuaricaurte, ante la falta de lectura se usa el promedio histórico.</p>
       </div>
       <div class="field">
         <label>Novedad</label>
@@ -751,7 +756,7 @@ onMounted(async () => {
           </template>
         </DataTable>
 
-        <div class="field mt-2">
+        <div v-if="susMmOptions.length > 1" class="field mt-2">
           <label>Consultar lecturas por medidor</label>
           <SearchableSelect v-model="detailSusMmId" :options="susMmOptions" placeholder="Seleccione un medidor…" clearable />
         </div>
@@ -770,7 +775,7 @@ onMounted(async () => {
             </template>
           </DataTable>
         </template>
-        <p v-else class="muted mt-2">Seleccione un medidor para ver sus lecturas (no se mezclan las de varios medidores).</p>
+        <p v-else-if="susMmOptions.length" class="muted mt-2">Seleccione un medidor para ver sus lecturas (no se mezclan las de varios medidores).</p>
       </template>
 
       <template v-else>

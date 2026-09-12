@@ -12,6 +12,18 @@ def sellar(obj, usuario, nuevo: bool = True) -> None:
     obj.updated_by = usuario.id
 
 
+def condiciones_busqueda(campo, texto: str | None):
+    """Condiciones AND: cada palabra del texto debe aparecer en el campo.
+
+    Hace la búsqueda permisiva: «simon acosta», «acosta simon» o
+    «martinez acosta» encuentran «ACOSTA MARTINEZ SIMON». La colación
+    utf8mb4_unicode_ci de MySQL ignora mayúsculas y tildes.
+    """
+    if not texto:
+        return []
+    return [campo.ilike(f"%{t}%") for t in str(texto).split() if t]
+
+
 def validar_foto_url(foto_url: str | None) -> str | None:
     """Valida la URL de una evidencia fotográfica (opcional en los 3 puntos).
 
