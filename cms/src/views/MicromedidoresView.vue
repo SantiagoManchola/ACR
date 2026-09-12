@@ -876,9 +876,14 @@ onMounted(async () => {
 
       <div class="print-area">
         <div class="print-head">
-          <h2 style="margin:0">ACR — Acueducto Comunitario Acuaricaurte</h2>
-          <p style="margin:.25rem 0 0">Historial de mediciones del micromedidor</p>
+          <img class="print-logo print-logo-acr" src="/print-logo-acr.png" alt="ACR" />
+          <div class="print-empresa">
+            <h2>ACUEDUCTO COMUNITARIO BARRIO RICAURTE “ACUARICAURTE”</h2>
+            <p>J.A.C. - COMISIÓN EMPRESARIAL · NIT: 809000633-7 · CEL: 3227928798</p>
+          </div>
+          <img class="print-logo print-logo-sup" src="/print-logo-superservicios.png" alt="Superservicios" />
         </div>
+        <div class="print-title">Historial de mediciones del micromedidor</div>
         <table class="print-meta">
           <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Tipo</th><td>{{ detailEntity?.tipo || '—' }}</td></tr>
           <tr><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td><th>Dirección</th><td>{{ detailEntity?.direccion || '—' }}</td></tr>
@@ -913,6 +918,7 @@ onMounted(async () => {
           </tfoot>
         </table>
         <div class="print-foot">
+          <span>Acueducto Comunitario Acuaricaurte “Avanzando Juntos”</span>
           <span>Impreso el {{ new Date().toLocaleDateString() }}</span>
         </div>
       </div>
@@ -928,9 +934,14 @@ onMounted(async () => {
       <p class="muted" style="margin:0 0 .75rem">{{ ultimas6.length }} medición(es) · {{ chartPeriodo }} · Total: {{ fmtNum(totalUltimas6) }} m³ · Promedio: {{ promedioTexto }}</p>
       <div class="print-area">
         <div class="print-head">
-          <h2 style="margin:0">ACR — Acueducto Comunitario Acuaricaurte</h2>
-          <p style="margin:.25rem 0 0">Consumo — últimas 6 mediciones del micromedidor</p>
+          <img class="print-logo print-logo-acr" src="/print-logo-acr.png" alt="ACR" />
+          <div class="print-empresa">
+            <h2>ACUEDUCTO COMUNITARIO BARRIO RICAURTE “ACUARICAURTE”</h2>
+            <p>J.A.C. - COMISIÓN EMPRESARIAL · NIT: 809000633-7 · CEL: 3227928798</p>
+          </div>
+          <img class="print-logo print-logo-sup" src="/print-logo-superservicios.png" alt="Superservicios" />
         </div>
+        <div class="print-title">Consumo — últimas 6 mediciones del micromedidor</div>
         <table class="print-meta">
           <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td></tr>
           <tr><th>Periodo graficado</th><td>{{ chartPeriodo }}</td><th>Promedio histórico</th><td><strong>{{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) + ' m³' }}</strong> (base {{ promedioBaseN }})</td></tr>
@@ -979,6 +990,7 @@ onMounted(async () => {
           </tfoot>
         </table>
         <div class="print-foot">
+          <span>Acueducto Comunitario Acuaricaurte “Avanzando Juntos”</span>
           <span>Impreso el {{ new Date().toLocaleDateString() }}</span>
         </div>
       </div>
@@ -995,8 +1007,10 @@ onMounted(async () => {
 </template>
 
 <style>
-/* Impresión: solo se imprime el área de mediciones / gráfico */
+/* Impresión: solo se imprime el área de mediciones / gráfico, con el mismo
+   membrete institucional de los PDF del backend (logos ACR + Superservicios). */
 @media print {
+  @page { size: letter; margin: 12mm; }
   body * { visibility: hidden !important; }
   .print-area, .print-area * { visibility: visible !important; }
   .print-area {
@@ -1004,27 +1018,45 @@ onMounted(async () => {
     left: 0; top: 0;
     width: 100%;
     padding: 0;
-    font-family: Georgia, 'Times New Roman', serif;
+    font-family: Helvetica, Arial, sans-serif;
   }
-  .print-head { text-align: center; border-bottom: 2px solid #2160AD; padding-bottom: .5rem; margin-bottom: .75rem; }
-  .print-head h2 { color: #2160AD; font-size: 1.1rem; }
-  .print-meta, .print-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: .8rem; }
-  .print-meta th, .print-meta td { border: 1px solid #ccc; padding: .3rem .5rem; text-align: left; }
-  .print-meta th { background: #EEF2FB; width: 18%; }
-  .print-table th, .print-table td { border: 1px solid #999; padding: .35rem .5rem; }
-  .print-table thead th { background: #2160AD; color: #fff; }
-  .print-table tfoot th { background: #EEF2FB; }
-  .print-foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 2rem; font-size: .8rem; }
+  .print-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    border-bottom: 2px solid #2160AD; padding-bottom: .5rem; margin-bottom: .6rem;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .print-logo-acr { width: 56px; height: auto; }
+  .print-logo-sup { width: 92px; height: auto; }
+  .print-empresa { flex: 1; text-align: center; }
+  .print-empresa h2 { color: #1B2733; font-size: .82rem; margin: 0; letter-spacing: .01em; }
+  .print-empresa p { color: #5B6B7B; font-size: .68rem; margin: .15rem 0 0; }
+  .print-title { color: #2160AD; font-size: .95rem; font-weight: 700; margin: 0 0 .55rem; }
+  .print-meta, .print-table { width: 100%; border-collapse: collapse; margin-bottom: .9rem; font-size: .74rem; }
+  .print-meta th, .print-meta td { border: 1px solid #D6E2F2; padding: .3rem .5rem; text-align: left; }
+  .print-meta th { background: #EEF2FB; width: 17%; color: #1A4E8C; }
+  .print-table th, .print-table td { border: 1px solid #D6E2F2; padding: .32rem .5rem; }
+  .print-table thead th {
+    background: #2160AD; color: #fff; text-align: left;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .print-table tbody tr:nth-child(even) { background: #EEF2FB; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-table tfoot th { background: #EEF2FB; color: #1B2733; }
+  .print-foot {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    margin-top: 1.4rem; padding-top: .4rem; border-top: 1px solid #D6E2F2;
+    font-size: .7rem; color: #5B6B7B; font-style: italic;
+  }
   .chart-print-bars {
     display: flex; align-items: flex-end; gap: .6rem;
-    border: 1px solid #999; border-radius: 6px; padding: .8rem .8rem .6rem; margin-bottom: 1rem;
+    border: 1px solid #D6E2F2; border-radius: 6px; padding: .8rem .8rem .6rem; margin-bottom: 1rem;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .chart-print-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .2rem; }
   .chart-print-val { font-size: .75rem; font-weight: 700; }
   .chart-print-track {
     width: 100%; max-width: 56px; height: 140px;
-    border: 1px solid #999; border-radius: 4px 4px 0 0;
-    display: flex; align-items: flex-end; background: #fff;
+    border: 1px solid #D6E2F2; border-radius: 4px 4px 0 0;
+    display: flex; align-items: flex-end; background: #EEF2FB;
   }
   .chart-print-fill { width: 100%; border-radius: 3px 3px 0 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .chart-print-fill.is-fis { background: #2160AD; }
@@ -1036,15 +1068,28 @@ onMounted(async () => {
 
 <style scoped>
 .print-area { background: #fff; border: 1px dashed var(--acr-borde); border-radius: 8px; padding: 1rem; }
-.print-head { text-align: center; border-bottom: 2px solid var(--acr-azul); padding-bottom: .5rem; margin-bottom: .75rem; }
-.print-head h2 { color: var(--acr-azul); font-size: 1.1rem; }
-.print-meta, .print-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; font-size: .8rem; }
+.print-head {
+  display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  border-bottom: 2px solid var(--acr-azul); padding-bottom: .5rem; margin-bottom: .6rem;
+}
+.print-logo-acr { width: 52px; height: auto; }
+.print-logo-sup { width: 86px; height: auto; }
+.print-empresa { flex: 1; text-align: center; }
+.print-empresa h2 { color: var(--acr-texto); font-size: .8rem; margin: 0; letter-spacing: .01em; }
+.print-empresa p { color: var(--acr-texto-suave); font-size: .66rem; margin: .15rem 0 0; }
+.print-title { color: var(--acr-azul); font-size: .92rem; font-weight: 700; margin: 0 0 .55rem; }
+.print-meta, .print-table { width: 100%; border-collapse: collapse; margin-bottom: .9rem; font-size: .76rem; }
 .print-meta th, .print-meta td { border: 1px solid var(--acr-borde); padding: .3rem .5rem; text-align: left; }
-.print-meta th { background: var(--acr-azul-50); width: 18%; }
-.print-table th, .print-table td { border: 1px solid var(--acr-borde); padding: .35rem .5rem; }
-.print-table thead th { background: var(--acr-azul); color: #fff; }
-.print-table tfoot th { background: var(--acr-azul-50); }
-.print-foot { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 2rem; font-size: .8rem; }
+.print-meta th { background: var(--acr-azul-50); width: 17%; color: var(--acr-azul-700); }
+.print-table th, .print-table td { border: 1px solid var(--acr-borde); padding: .32rem .5rem; }
+.print-table thead th { background: var(--acr-azul); color: #fff; text-align: left; }
+.print-table tbody tr:nth-child(even) { background: var(--acr-azul-50); }
+.print-table tfoot th { background: var(--acr-azul-50); color: var(--acr-texto); }
+.print-foot {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  margin-top: 1.2rem; padding-top: .4rem; border-top: 1px solid var(--acr-borde);
+  font-size: .72rem; color: var(--acr-texto-suave); font-style: italic;
+}
 
 /* Gráfico últimas 6 mediciones */
 .chart-card {
