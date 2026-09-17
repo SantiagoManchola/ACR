@@ -1,5 +1,6 @@
 <script setup>
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUsuariosStore } from '../stores/usuarios'
 import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
@@ -14,7 +15,20 @@ import { useBusy } from '../utils/async'
 
 const usu = useUsuariosStore()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const tab = ref('usuarios')
+/* Sincronía pestaña ↔ URL: /usuarios/usuarios, /usuarios/roles */
+const TABS_VALIDOS = ['usuarios', 'roles']
+watch(() => route.params.tab, (t) => {
+  if (t === undefined) return
+  if (!TABS_VALIDOS.includes(t)) { router.replace({ name: 'usuarios', params: { tab: tab.value } }); return }
+  if (t !== tab.value) tab.value = t
+}, { immediate: true })
+function setTab(t) {
+  tab.value = t
+  router.replace({ name: 'usuarios', params: { tab: t } })
+}
 const saving = ref(false)
 /* Cargas de botones asíncronos */
 const { busy: refrescando, run: refRun } = useBusy()
@@ -100,9 +114,10 @@ async function saveRol() {
   catch (e) { rolError.value = apiError(e) } finally { saving.value = false }
 }
 
-onMounted(async () => {
-  await usu.loadRoles()
-  await cargarUsuarios()
+onMounted(() => {
+  /* Cargas en paralelo desde el primer render */
+  usu.loadRoles()
+  cargarUsuarios()
 })
 </script>
 
@@ -112,8 +127,8 @@ onMounted(async () => {
     <p class="muted">Gestión de accesos del sistema. Solo administradores.</p>
 
     <div class="tabs">
-      <button :class="{ active: tab === 'usuarios' }" @click="tab = 'usuarios'"><AppIcon name="users" />Usuarios</button>
-      <button :class="{ active: tab === 'roles' }" @click="tab = 'roles'"><AppIcon name="role" />Roles</button>
+      <button :class="{ active: tab === 'usuarios' }" @click="setTab('usuarios')"><AppIcon name="users" />Usuarios</button>
+      <button :class="{ active: tab === 'roles' }" @click="setTab('roles')"><AppIcon name="role" />Roles</button>
     </div>
 
     <div v-if="tab === 'usuarios'" class="tab-panel">

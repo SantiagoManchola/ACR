@@ -17,12 +17,17 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
     // Listas ligeras para selects/filtros (no paginadas)
     opcionesSuscriptores: [],
     opcionesMedidores: [],
-    loading: false,
+    // Contador de peticiones en curso (skeleton mientras haya alguna)
+    cargas: 0,
     error: null,
   }),
+  getters: {
+    loading: (s) => s.cargas > 0,
+  },
   actions: {
+
     async loadSuscriptores(filtros = {}, page = 1, orden = '', dir = 'asc') {
-      this.loading = true
+      this.cargas++
       this.error = null
       try {
         const params = { ...filtros, page, page_size: PAGE_SIZE }
@@ -30,7 +35,7 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
         const { data } = await client.get('/suscriptores', { params })
         this.suscriptores = data.items
         this.suscriptoresTotal = data.total
-      } catch (e) { this.error = apiError(e) } finally { this.loading = false }
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async loadSuscriptoresOpciones() {
       const { data } = await client.get('/suscriptores/opciones')
@@ -69,7 +74,7 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
     async deleteSuscriptor(id) { await client.delete(`/suscriptores/${id}`); },
 
     async loadMicromedidores(filtros = {}, page = 1, orden = '', dir = 'asc') {
-      this.loading = true
+      this.cargas++
       this.error = null
       try {
         const params = { ...filtros, page, page_size: PAGE_SIZE }
@@ -77,7 +82,7 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
         const { data } = await client.get('/micromedidores', { params })
         this.micromedidores = data.items
         this.micromedidoresTotal = data.total
-      } catch (e) { this.error = apiError(e) } finally { this.loading = false }
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async loadMicromedidoresOpciones() {
       const { data } = await client.get('/micromedidores/opciones')
@@ -88,7 +93,7 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
     async deleteMicromedidor(id) { await client.delete(`/micromedidores/${id}`); },
 
     async loadLecturas(filtros = {}, page = 1, orden = '', dir = 'desc') {
-      this.loading = true
+      this.cargas++
       this.error = null
       try {
         const params = { ...filtros, page, page_size: PAGE_SIZE }
@@ -96,17 +101,17 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
         const { data } = await client.get('/lecturas', { params })
         this.lecturas = data.items
         this.lecturasTotal = data.total
-      } catch (e) { this.error = apiError(e) } finally { this.loading = false }
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createLectura(p) { const { data } = await client.post('/lecturas', p); return data },
 
     async loadConsumoPorSector(sector) {
-      this.loading = true
+      this.cargas++
       this.error = null
       try {
         const { data } = await client.get(`/consumo/sector/${encodeURIComponent(sector)}`)
         this.consumo = data
-      } catch (e) { this.error = apiError(e) } finally { this.loading = false }
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
   },
 })

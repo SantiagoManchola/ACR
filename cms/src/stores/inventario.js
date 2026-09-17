@@ -17,23 +17,35 @@ export const useInventarioStore = defineStore('inventario', {
     ubicaciones: [],
     traslados: [],
     trasladosTotal: 0,
-    loading: false,
+    // Contador de peticiones en curso (skeleton mientras haya alguna)
+    cargas: 0,
     error: null,
   }),
+  getters: {
+    loading: (s) => s.cargas > 0,
+  },
   actions: {
     async loadCategorias() {
-      const { data } = await client.get('/inventario/categorias')
-      this.categorias = data
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/inventario/categorias')
+        this.categorias = data
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createCategoria(p) { const { data } = await client.post('/inventario/categorias', p); this.categorias.push(data); return data },
     async loadUbicaciones() {
-      const { data } = await client.get('/inventario/ubicaciones')
-      this.ubicaciones = data
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/inventario/ubicaciones')
+        this.ubicaciones = data
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createUbicacion(p) { const { data } = await client.post('/inventario/ubicaciones', p); this.ubicaciones.push(data); return data },
     async updateUbicacion(id, p) { const { data } = await client.patch(`/inventario/ubicaciones/${id}`, p); const i = this.ubicaciones.findIndex((u) => u.id === id); if (i >= 0) this.ubicaciones[i] = data; return data },
     async loadElementos(filtros = {}, page = 1, orden = '', dir = 'asc') {
-      this.loading = true
+      this.cargas++
       this.error = null
       try {
         const params = { ...filtros, page, page_size: PAGE_SIZE }
@@ -44,7 +56,7 @@ export const useInventarioStore = defineStore('inventario', {
       } catch (e) {
         this.error = apiError(e)
       } finally {
-        this.loading = false
+        this.cargas = Math.max(0, this.cargas - 1)
       }
     },
     // Lista ligera (id, nombre, stock resumido) para selects de formularios y filtros
@@ -52,14 +64,18 @@ export const useInventarioStore = defineStore('inventario', {
       const { data } = await client.get('/inventario/opciones')
       this.opciones = data
     },
-    // Detalle fresco de un elemento (tras quitar stock, editar, etc.)
+    // Detalle fresco de un elemento
     async loadElemento(id) {
       const { data } = await client.get(`/inventario/${id}`)
       return data
     },
     async loadQuimicos() {
-      const { data } = await client.get('/inventario', { params: { categoria_tipo: 'insumo', categoria_nombre: 'Químicos', page: 1, page_size: 100 } })
-      this.quimicos = data.items
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/inventario', { params: { categoria_tipo: 'insumo', categoria_nombre: 'Químicos', page: 1, page_size: 100 } })
+        this.quimicos = data.items
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createQuimico(p) {
       const { data } = await client.post('/inventario', p)
@@ -82,11 +98,15 @@ export const useInventarioStore = defineStore('inventario', {
       return data
     },
     async loadTraslados(filtros = {}, page = 1, orden = '', dir = 'desc') {
-      const params = { ...filtros, page, page_size: PAGE_SIZE }
-      if (orden) { params.orden = orden; params.dir_orden = dir }
-      const { data } = await client.get('/inventario/traslados', { params })
-      this.traslados = data.items
-      this.trasladosTotal = data.total
+      this.cargas++
+      this.error = null
+      try {
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/inventario/traslados', { params })
+        this.traslados = data.items
+        this.trasladosTotal = data.total
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async deleteStock(id) {
       await client.delete(`/inventario/stock/${id}`)
@@ -111,15 +131,23 @@ export const useInventarioStore = defineStore('inventario', {
       return data
     },
     async loadMovimientos(filtros = {}, page = 1, orden = '', dir = 'desc') {
-      const params = { ...filtros, page, page_size: PAGE_SIZE }
-      if (orden) { params.orden = orden; params.dir_orden = dir }
-      const { data } = await client.get('/inventario/movimientos', { params })
-      this.movimientos = data.items
-      this.movimientosTotal = data.total
+      this.cargas++
+      this.error = null
+      try {
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/inventario/movimientos', { params })
+        this.movimientos = data.items
+        this.movimientosTotal = data.total
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async loadAlertas() {
-      const { data } = await client.get('/inventario/alertas')
-      this.alertas = data
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/inventario/alertas')
+        this.alertas = data
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
   },
 })

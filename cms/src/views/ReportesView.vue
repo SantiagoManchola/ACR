@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import client from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { hoyColombia, formatoOptions } from '../utils/format'
@@ -91,6 +91,8 @@ const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes
 /* La vista previa se regenera sola (debounce) al cambiar módulo, filtros o fechas */
 const verPreviewDeb = debounce(() => verPreview(), 400)
 watch([modulo, sector, fueraRango, fechaInicio, fechaFin], () => { if (puedeVer.value) verPreviewDeb() })
+/* Primer render: arranca la vista previa de una vez (skeleton inmediato) */
+onMounted(() => { if (puedeVer.value) verPreview() })
 </script>
 
 <template>

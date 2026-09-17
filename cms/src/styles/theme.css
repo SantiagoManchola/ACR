@@ -134,6 +134,11 @@ h3 { font-size: 1rem; }
 .sidebar a.nav-item:hover { background: var(--acr-azul-50); text-decoration: none; }
 .sidebar a.nav-item.router-link-active { background: var(--acr-azul); color: #fff; }
 .sidebar a.nav-item.router-link-active .acr-icon { color: #fff; }
+/* Item del aside por MÓDULO activo (vistas con pestañas en la URL):
+   se marca en cualquier pestaña del módulo (inventario/elementos,
+   inventario/categorias, …), no solo la pestaña por defecto. */
+.sidebar a.nav-item.is-modulo-activo { background: var(--acr-azul); color: #fff; }
+.sidebar a.nav-item.is-modulo-activo .acr-icon { color: #fff; }
 .sidebar .nav-item .acr-icon { color: var(--acr-azul); flex: none; }
 
 /* ----------------------------- Cards ----------------------------- */

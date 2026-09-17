@@ -25,10 +25,17 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', name: 'dashboard', component: () => import('../views/Dashboard.vue') },
-      { path: 'inventario', name: 'inventario', component: () => import('../views/InventarioView.vue') },
-      { path: 'micromedidores', name: 'micromedidores', component: () => import('../views/MicromedidoresView.vue') },
-      { path: 'planta', name: 'planta', component: () => import('../views/PlantaView.vue') },
-      { path: 'usuarios', name: 'usuarios', component: () => import('../views/UsuariosView.vue'), meta: { roles: ['admin'] } },
+      /* Cada pestaña de las vistas con tablas tiene su propia URL
+         (inventario/elementos, inventario/categorias, …): la pestaña es
+         compartible y el back/forward del navegador la conserva. */
+      { path: 'inventario', redirect: { name: 'inventario', params: { tab: 'elementos' } } },
+      { path: 'inventario/:tab', name: 'inventario', component: () => import('../views/InventarioView.vue') },
+      { path: 'micromedidores', redirect: { name: 'micromedidores', params: { tab: 'suscriptores' } } },
+      { path: 'micromedidores/:tab', name: 'micromedidores', component: () => import('../views/MicromedidoresView.vue') },
+      { path: 'planta', redirect: { name: 'planta', params: { tab: 'parametros' } } },
+      { path: 'planta/:tab', name: 'planta', component: () => import('../views/PlantaView.vue') },
+      { path: 'usuarios', redirect: { name: 'usuarios', params: { tab: 'usuarios' } } },
+      { path: 'usuarios/:tab', name: 'usuarios', component: () => import('../views/UsuariosView.vue'), meta: { roles: ['admin'] } },
     ],
   },
   { path: '/:pathMatch(.*)*', name: 'notfound', component: () => import('../views/NotFound.vue') },

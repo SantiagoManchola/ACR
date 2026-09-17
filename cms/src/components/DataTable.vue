@@ -201,19 +201,20 @@ function cambiarDir() {
       <span>{{ error }}</span>
     </div>
 
-    <div v-if="loading" class="table-skeleton" role="status" aria-live="polite" aria-label="Cargando registros">
+    <!-- Primera carga (sin datos aún): skeleton completo con estado -->
+    <div v-if="loading && !rows.length" class="table-skeleton" role="status" aria-live="polite" aria-label="Cargando registros">
       <p class="skeleton-status"><span class="spinner" aria-hidden="true"></span>Cargando registros…</p>
       <div v-for="n in 5" :key="n" class="skeleton-row" :style="{ '--skeleton-cols': Math.max(columns.length, 1) }" aria-hidden="true">
         <span v-for="col in columns" :key="col.key" class="skeleton-cell"></span>
       </div>
     </div>
 
-    <div v-else-if="!rows.length" class="state-block">
+    <div v-else-if="!rows.length && !loading" class="state-block">
       <AppIcon name="search" :size="28" />
       <p style="margin-top:.4rem">{{ emptyText }}</p>
     </div>
 
-    <div v-else-if="esMovil" class="card-list">
+    <div v-else-if="esMovil" class="card-list" :class="{ 'cards-loading': loading }">
       <div v-if="colsOrdenables.length" class="card-sort">
         <AppIcon name="sort" :size="16" class="card-sort-icon" />
         <select
@@ -237,8 +238,7 @@ function cambiarDir() {
         </button>
       </div>
 
-      <article v-for="(row, i) in paginated" :key="row.id ?? i" class="card-row">
-        <header v-if="colTitulo" class="card-row-head">
+      <article v-for="(row, i) in paginated" :key="row.id ?? i" class="card-row">        <header v-if="colTitulo" class="card-row-head">
           <slot name="cell" :row="row" :col="colTitulo">
             <strong>{{ colTitulo.num ? fmtNum(row[colTitulo.key]) : (row[colTitulo.key] ?? '—') }}</strong>
           </slot>
@@ -286,7 +286,17 @@ function cambiarDir() {
             <th v-if="$slots['row-actions']" class="num">Acciones</th>
           </tr>
         </thead>
-        <tbody>
+        <!-- Cambio de página/orden: el thead (título y columnas) SIEMPRE
+             queda visible; solo el contenido pasa a filas esqueleto -->
+        <tbody v-if="loading && rows.length" class="tbody-cargando" aria-hidden="true">
+          <tr v-for="n in Math.min(pageSize, 8)" :key="'sk' + n">
+            <td v-for="col in columns" :key="col.key" :class="{ num: col.align === 'right' }">
+              <span class="skeleton-cell"></span>
+            </td>
+            <td v-if="$slots['row-actions']" class="row-actions"><span class="skeleton-cell"></span></td>
+          </tr>
+        </tbody>
+        <tbody v-else>
           <tr v-for="(row, i) in paginated" :key="row.id ?? i">
             <td v-for="col in columns" :key="col.key" :class="{ num: col.align === 'right' }">
               <slot name="cell" :row="row" :col="col">
@@ -301,14 +311,15 @@ function cambiarDir() {
       </table>
     </div>
 
-    <div v-if="!loading && rows.length" class="table-pagination">
+    <!-- El paginador NO desaparece al cargar: se deshabilita hasta que llegue la página -->
+    <div v-if="rows.length" class="table-pagination">
       <span class="muted">{{ rango }}</span>
       <div class="pager">
-        <button class="btn btn-ghost btn-sm" :disabled="pageActual <= 1" @click="goto(pageActual - 1)">
+        <button class="btn btn-ghost btn-sm" :disabled="loading || pageActual <= 1" @click="goto(pageActual - 1)">
           <AppIcon name="chevronLeft" :size="14" /> Anterior
         </button>
         <span class="pager-num">Página {{ pageActual }} / {{ totalPages }}</span>
-        <button class="btn btn-ghost btn-sm" :disabled="pageActual >= totalPages" @click="goto(pageActual + 1)">
+        <button class="btn btn-ghost btn-sm" :disabled="loading || pageActual >= totalPages" @click="goto(pageActual + 1)">
           Siguiente <AppIcon name="chevronRight" :size="14" />
         </button>
       </div>
@@ -322,12 +333,19 @@ function cambiarDir() {
 .skeleton-status .spinner { width: 18px; height: 18px; margin: 0; }
 .skeleton-row { display: grid; grid-template-columns: repeat(var(--skeleton-cols), minmax(0, 1fr)); gap: 1rem; padding: 1rem; border-bottom: 1px solid var(--acr-borde); }
 .skeleton-cell { display: block; height: 1rem; border-radius: 5px; background: var(--acr-gris, #EAF1FB); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+/* Cuerpo en carga (cambio de página): el contenido pasa a filas esqueleto
+   manteniendo el thead; el paginador se deshabilita sin desaparecer */
+.tbody-cargando td { padding-top: 1.05rem; padding-bottom: 1rem; }
+.tbody-cargando .skeleton-cell { width: 85%; }
+.cards-loading { opacity: .65; pointer-events: none; }
+.cards-loading::before { content: ''; display: block; height: 3px; border-radius: 999px; margin-bottom: .5rem; background: linear-gradient(90deg, transparent, var(--acr-azul), transparent); animation: barra-carga 1s ease-in-out infinite; }
+@keyframes barra-carga { 0% { opacity: .2; } 50% { opacity: 1; } 100% { opacity: .2; } }
 @keyframes skeleton-pulse { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-cell, .skeleton-status .spinner, .cards-loading::before { animation: none; }
+}
 @media (max-width: 700px) {
   .skeleton-row { grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--acr-borde); border-radius: 8px; margin-bottom: .6rem; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .skeleton-cell, .skeleton-status .spinner { animation: none; }
 }
 .table thead th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 .table thead th.sortable:hover { color: var(--acr-azul); }

@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePlantaStore } from '../stores/planta'
 import { useInventarioStore } from '../stores/inventario'
 import { useUsuariosStore } from '../stores/usuarios'
@@ -22,7 +23,20 @@ const planta = usePlantaStore()
 const inv = useInventarioStore()
 const usu = useUsuariosStore()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const tab = ref('parametros')
+/* Sincronía pestaña ↔ URL: /planta/parametros, /planta/mediciones, … */
+const TABS_VALIDOS = ['parametros', 'mediciones', 'fuera', 'productos', 'dosificaciones', 'actividades', 'horas']
+watch(() => route.params.tab, (t) => {
+  if (t === undefined) return
+  if (!TABS_VALIDOS.includes(t)) { router.replace({ name: 'planta', params: { tab: tab.value } }); return }
+  if (t !== tab.value) tab.value = t
+}, { immediate: true })
+function setTab(t) {
+  tab.value = t
+  router.replace({ name: 'planta', params: { tab: t } })
+}
 const saving = ref(false)
 /* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
 const { busy: repBusy, run: repRun } = useBusy()
@@ -418,17 +432,20 @@ async function saveHora() {
   catch (e) { horaError.value = apiError(e) } finally { saving.value = false }
 }
 
-onMounted(async () => {
-  const tareas = [
-    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadFueraRango(),
-    planta.loadUsuariosOpciones(),
-  ]
-  if (puedeGestionarUsuarios.value) tareas.push(usu.loadOpciones())
-  await Promise.all(tareas)
+onMounted(() => {
+  /* Cargas en paralelo desde el primer render (sin awaits previos que
+     dejen las tablas en "Sin información") */
   filtrarMed()
   filtrarAct()
   filtrarDosis()
   filtrarHora()
+  planta.loadParametros()
+  inv.loadCategorias()
+  inv.loadQuimicos()
+  inv.loadUbicaciones()
+  planta.loadFueraRango()
+  planta.loadUsuariosOpciones()
+  if (puedeGestionarUsuarios.value) usu.loadOpciones()
 })
 
 /* Al entrar a cada pestaña se refrescan sus datos para no mostrar información desactualizada
@@ -453,18 +470,18 @@ watch(tab, (t) => {
     </div>
 
     <div class="tabs">
-      <button :class="{ active: tab === 'parametros' }" @click="tab = 'parametros'"><AppIcon name="flask" />Parámetros</button>
-      <button :class="{ active: tab === 'mediciones' }" @click="tab = 'mediciones'"><AppIcon name="drop" />Mediciones</button>
-      <button :class="{ active: tab === 'fuera' }" @click="tab = 'fuera'">
+      <button :class="{ active: tab === 'parametros' }" @click="setTab('parametros')"><AppIcon name="flask" />Parámetros</button>
+      <button :class="{ active: tab === 'mediciones' }" @click="setTab('mediciones')"><AppIcon name="drop" />Mediciones</button>
+      <button :class="{ active: tab === 'fuera' }" @click="setTab('fuera')">
         <AppIcon name="alert" />Fuera de rango
         <span v-if="planta.fueraRango.length" class="badge badge-bad">{{ planta.fueraRango.length }}</span>
       </button>
-      <button :class="{ active: tab === 'productos' }" @click="tab = 'productos'"><AppIcon name="flask" />Químicos
+      <button :class="{ active: tab === 'productos' }" @click="setTab('productos')"><AppIcon name="flask" />Químicos
         <span v-if="quimicosBajos" class="badge badge-bad">{{ quimicosBajos }}</span>
       </button>
-      <button :class="{ active: tab === 'dosificaciones' }" @click="tab = 'dosificaciones'"><AppIcon name="package" />Dosificaciones</button>
-      <button :class="{ active: tab === 'actividades' }" @click="tab = 'actividades'"><AppIcon name="wrench" />Actividades</button>
-      <button :class="{ active: tab === 'horas' }" @click="tab = 'horas'"><AppIcon name="clock" />Horas de servicio</button>
+      <button :class="{ active: tab === 'dosificaciones' }" @click="setTab('dosificaciones')"><AppIcon name="package" />Dosificaciones</button>
+      <button :class="{ active: tab === 'actividades' }" @click="setTab('actividades')"><AppIcon name="wrench" />Actividades</button>
+      <button :class="{ active: tab === 'horas' }" @click="setTab('horas')"><AppIcon name="clock" />Horas de servicio</button>
     </div>
 
     <!-- PARÁMETROS -->

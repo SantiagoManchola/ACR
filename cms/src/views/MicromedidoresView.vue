@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMicromedidoresStore } from '../stores/micromedidores'
 import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
@@ -18,6 +19,8 @@ import { useBusy } from '../utils/async'
 
 const mm = useMicromedidoresStore()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const tab = ref('suscriptores')
 /* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
 const { busy: repBusy, run: repRun } = useBusy()
@@ -26,6 +29,20 @@ const { busy: accionBusy, run: accionRun } = useBusy()
 // El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
 const esFontanero = computed(() => auth.rol === 'fontanero')
 const esAdmin = computed(() => auth.rol === 'admin')
+/* Sincronía pestaña ↔ URL: /micromedidores/suscriptores, …/micromedidores, /micromedidores/lecturas
+   (y …/sectores solo para admin). La pestaña es compartible y el watch
+   reconsulta los datos al cambiar de URL. */
+const TABS_VALIDOS = ['suscriptores', 'micromedidores', 'lecturas']
+watch(() => route.params.tab, (t) => {
+  if (t === undefined) return
+  const valido = TABS_VALIDOS.includes(t) || (t === 'sectores' && esAdmin.value)
+  if (!valido) { router.replace({ name: 'micromedidores', params: { tab: tab.value } }); return }
+  if (t !== tab.value) tab.value = t
+}, { immediate: true })
+function setTab(t) {
+  tab.value = t
+  router.replace({ name: 'micromedidores', params: { tab: t } })
+}
 
 const susOptions = computed(() => mm.opcionesSuscriptores.map((s) => ({ value: s.id, label: s.nombre })))
 const sectorOptions = computed(() => mm.sectores.map((s) => ({
@@ -522,13 +539,15 @@ async function saveLec() {
   } catch (e) { lecError.value = apiError(e) } finally { saving.value = false }
 }
 
-onMounted(async () => {
-  await mm.loadSuscriptoresOpciones()
-  await mm.loadMicromedidoresOpciones()
+onMounted(() => {
+  /* Skeleton desde el primer render: todas las cargas arrancan de una vez,
+     sin awaits previos que dejen la tabla en "Sin información" */
   buscarSus()
   buscarMm()
   buscarLec()
-  await mm.loadSectores()
+  mm.loadSuscriptoresOpciones()
+  mm.loadMicromedidoresOpciones()
+  mm.loadSectores()
 })
 </script>
 
@@ -539,10 +558,10 @@ onMounted(async () => {
     <BaseAlert v-if="repError" type="bad" class="mb-1">{{ repError }}</BaseAlert>
 
     <div class="tabs">
-      <button :class="{ active: tab === 'suscriptores' }" @click="tab = 'suscriptores'"><AppIcon name="users" />Suscriptores</button>
-      <button :class="{ active: tab === 'micromedidores' }" @click="tab = 'micromedidores'"><AppIcon name="gauge" />Micromedidores</button>
-      <button :class="{ active: tab === 'lecturas' }" @click="tab = 'lecturas'"><AppIcon name="edit" />Lecturas</button>
-      <button v-if="esAdmin" :class="{ active: tab === 'sectores' }" @click="tab = 'sectores'"><AppIcon name="mapPin" />Sectores</button>
+      <button :class="{ active: tab === 'suscriptores' }" @click="setTab('suscriptores')"><AppIcon name="users" />Suscriptores</button>
+      <button :class="{ active: tab === 'micromedidores' }" @click="setTab('micromedidores')"><AppIcon name="gauge" />Micromedidores</button>
+      <button :class="{ active: tab === 'lecturas' }" @click="setTab('lecturas')"><AppIcon name="edit" />Lecturas</button>
+      <button v-if="esAdmin" :class="{ active: tab === 'sectores' }" @click="setTab('sectores')"><AppIcon name="mapPin" />Sectores</button>
     </div>
 
     <!-- SUSCRIPTORES -->

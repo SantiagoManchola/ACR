@@ -1,5 +1,6 @@
 <script setup>
 import { onMounted, ref, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useInventarioStore } from '../stores/inventario'
 import { useAuthStore } from '../stores/auth'
 import DataTable from '../components/DataTable.vue'
@@ -16,6 +17,8 @@ import { useBusy } from '../utils/async'
 
 const inv = useInventarioStore()
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 /* Roles: el CRUD de ubicaciones es SOLO admin; el administrativo SOLO ve
    inventario de la Oficina (el backend fuerza ese alcance; aquí se refleja
@@ -37,6 +40,18 @@ function forzarOficina() {
 }
 
 const tab = ref('elementos')
+/* Sincronía pestaña ↔ URL: /inventario/elementos, /inventario/categorias, …
+   La pestaña es compartible y el navegador la conserva con back/forward. */
+const TABS_VALIDOS = ['elementos', 'categorias', 'ubicaciones', 'traslados', 'movimientos', 'alertas']
+watch(() => route.params.tab, (t) => {
+  if (t === undefined) return // la ruta base solo existe como redirect
+  if (!TABS_VALIDOS.includes(t)) { router.replace({ name: 'inventario', params: { tab: tab.value } }); return }
+  if (t !== tab.value) tab.value = t
+}, { immediate: true })
+function setTab(t) {
+  tab.value = t
+  router.replace({ name: 'inventario', params: { tab: t } })
+}
 const showForm = ref(false)
 const showMov = ref(false)
 const showCat = ref(false)
@@ -409,21 +424,26 @@ async function removeStock(s) {
 
 function badgeTone(tipo) { return tipo === 'entrada' ? 'badge-ok' : 'badge-warn' }
 
-onMounted(async () => {
-  await inv.loadCategorias()
-  await inv.loadUbicaciones()
-  await inv.loadOpciones()
-  if (esAdministrativo.value) forzarOficina()
-  await inv.loadElementos(aplicarFiltros(), pageElem.value)
-  await inv.loadAlertas()
+onMounted(() => {
+  /* Cargas en paralelo desde el primer render (el backend fuerza el alcance
+     Oficina para el administrativo; los filtros se rellenan al llegar las
+     ubicaciones y el watch re-consulta una sola vez). Sin awaits previos:
+     la tabla nunca arranca mostrando "Sin información". */
+  filtrar()
   filtrarMov()
   filtrarTras()
+  inv.loadOpciones()
+  inv.loadAlertas()
+  inv.loadCategorias()
+  inv.loadUbicaciones().then(() => {
+    if (esAdministrativo.value) forzarOficina()
+  })
 })
 
 watch(() => tab.value, (t) => {
   if (t === 'ubicaciones') inv.loadUbicaciones()
   if (t === 'categorias') inv.loadCategorias()
-  if (t === 'elementos') inv.loadElementos(aplicarFiltros(), pageElem.value)
+  if (t === 'elementos') filtrar()
   if (t === 'alertas') inv.loadAlertas()
   if (t === 'traslados') filtrarTras()
   if (t === 'movimientos') filtrarMov()
@@ -437,12 +457,12 @@ watch(() => tab.value, (t) => {
     <p v-if="esAdministrativo" class="muted">Viendo inventario de <strong>{{ oficinaUbi?.nombre || 'Oficina' }}</strong>: tu rol solo tiene alcance a esa ubicación.</p>
 
     <div class="tabs">
-      <button :class="{ active: tab === 'elementos' }" @click="tab = 'elementos'"><AppIcon name="package" />Elementos</button>
-      <button :class="{ active: tab === 'categorias' }" @click="tab = 'categorias'"><AppIcon name="tag" />Categorías</button>
-      <button :class="{ active: tab === 'ubicaciones' }" @click="tab = 'ubicaciones'"><AppIcon name="mapPin" />Ubicaciones</button>
-      <button :class="{ active: tab === 'traslados' }" @click="tab = 'traslados'"><AppIcon name="swap" />Traslados</button>
-      <button :class="{ active: tab === 'movimientos' }" @click="tab = 'movimientos'"><AppIcon name="refresh" />Movimientos</button>
-      <button :class="{ active: tab === 'alertas' }" @click="tab = 'alertas'">
+      <button :class="{ active: tab === 'elementos' }" @click="setTab('elementos')"><AppIcon name="package" />Elementos</button>
+      <button :class="{ active: tab === 'categorias' }" @click="setTab('categorias')"><AppIcon name="tag" />Categorías</button>
+      <button :class="{ active: tab === 'ubicaciones' }" @click="setTab('ubicaciones')"><AppIcon name="mapPin" />Ubicaciones</button>
+      <button :class="{ active: tab === 'traslados' }" @click="setTab('traslados')"><AppIcon name="swap" />Traslados</button>
+      <button :class="{ active: tab === 'movimientos' }" @click="setTab('movimientos')"><AppIcon name="refresh" />Movimientos</button>
+      <button :class="{ active: tab === 'alertas' }" @click="setTab('alertas')">
         <AppIcon name="alert" />Alertas
         <span v-if="inv.alertas.length" class="badge badge-bad">{{ inv.alertas.length }}</span>
       </button>
