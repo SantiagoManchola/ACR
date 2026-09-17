@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import client, { getToken, setToken, apiError } from '../api/http'
+import client, { getToken, setToken, setRefreshToken, limpiarSesion, apiError } from '../api/http'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -23,6 +23,7 @@ export const useAuthStore = defineStore('auth', {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         })
         setToken(data.access_token)
+        setRefreshToken(data.refresh_token)
         this.token = data.access_token
         await this.fetchMe()
         return true
@@ -39,7 +40,7 @@ export const useAuthStore = defineStore('auth', {
       return data
     },
     logout() {
-      setToken(null)
+      limpiarSesion()
       this.token = null
       this.user = null
     },

@@ -6,9 +6,10 @@ import { setupHttp } from './api/http'
 import './styles/theme.css'
 
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
 
-setupHttp(router)
+setupHttp(router, pinia)
 
 app.mount('#app')

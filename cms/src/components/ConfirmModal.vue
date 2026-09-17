@@ -8,11 +8,13 @@ const props = defineProps({
   message: { type: String, default: '' },
   confirmText: { type: String, default: 'Confirmar' },
   danger: { type: Boolean, default: true },
+  // Peticiones en curso: el botón confirmar deshabilita y muestra carga
+  loading: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:show', 'confirm', 'cancel'])
 
-function close() { emit('update:show', false); emit('cancel') }
-function confirm() { emit('confirm') }
+function close() { if (!props.loading) { emit('update:show', false); emit('cancel') } }
+function confirm() { if (!props.loading) emit('confirm') }
 </script>
 
 <template>
@@ -22,8 +24,10 @@ function confirm() { emit('confirm') }
       <p class="confirm-msg">{{ message }}</p>
     </div>
     <template #footer>
-      <button class="btn btn-ghost" @click="close">Cancelar</button>
-      <button class="btn" :class="danger ? 'btn-danger' : 'btn-primary'" @click="confirm">{{ confirmText }}</button>
+      <button class="btn btn-ghost" :disabled="loading" @click="close">Cancelar</button>
+      <button class="btn" :class="danger ? 'btn-danger' : 'btn-primary'" :disabled="loading" @click="confirm">
+        <span v-if="loading" class="spinner"></span>{{ loading ? 'Procesando…' : confirmText }}
+      </button>
     </template>
   </BaseModal>
 </template>

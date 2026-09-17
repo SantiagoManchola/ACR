@@ -1,15 +1,17 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import AppIcon from '../components/AppIcon.vue'
 import PasswordInput from '../components/PasswordInput.vue'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 
 const username = ref('')
 const password = ref('')
+const sesionExpirada = computed(() => route.query.sesion === 'expirada')
 
 async function submit() {
   const ok = await auth.login(username.value.trim(), password.value)
@@ -48,6 +50,7 @@ async function submit() {
             <PasswordInput id="p" v-model="password" icon="lock" placeholder="••••••" required autocomplete="current-password" />
           </div>
 
+          <BaseAlert v-if="sesionExpirada" type="info" class="mb-1">Tu sesión expiró por seguridad. Ingresa de nuevo para continuar.</BaseAlert>
           <BaseAlert v-if="auth.error" type="bad" class="mb-1">{{ auth.error }}</BaseAlert>
 
           <button class="btn btn-primary btn-block" type="submit" :disabled="auth.loading">

@@ -10,7 +10,19 @@ const props = defineProps({
   emptyText: { type: String, default: 'Sin registros.' },
   error: { type: String, default: '' },
   pageSize: { type: Number, default: 10 },
+  /* Paginación server-side: cuando `total` viene definido, la tabla muestra
+     la página que la vista ya cargó (rows = página actual) y emite
+     'update:page' al cambiar; sin `total` pagina el arreglo local. */
+  total: { type: Number, default: null },
+  page: { type: Number, default: 1 },
+  /* Orden server-side: en modo servidor el orden lo resuelve la API
+     (whitelist) con sort aplicado a TODA la tabla, no solo la página.
+     La tabla emite 'update:sort' = { key, dir } y muestra el estado
+     recibido en sortBy/sortDir. */
+  sortBy: { type: String, default: '' },
+  sortDir: { type: String, default: 'asc' },
 })
+const emit = defineEmits(['update:page', 'update:sort'])
 
 /* Mobile: en pantallas angostas se muestra lista de cards en vez de tabla. */
 const bpCard = 700
@@ -97,6 +109,15 @@ const ordenadas = computed(() => {
 })
 
 function ordenarPor(col) {
+  if (serverMode.value) {
+    // asc → desc → sin orden (igual que el modo local), pero re-consultando la API
+    if (sortKeyReal.value === col.key) {
+      if (sortDirReal.value === 'asc') { emit('update:sort', { key: col.key, dir: 'desc' }); return }
+      emit('update:sort', { key: '', dir: 'asc' }); return
+    }
+    emit('update:sort', { key: col.key, dir: 'asc' })
+    return
+  }
   if (sortKey.value === col.key) {
     if (sortDir.value === 'asc') { sortDir.value = 'desc'; return }
     sortKey.value = ''; sortDir.value = 'asc'; return // tercer clic: sin orden
@@ -105,28 +126,49 @@ function ordenarPor(col) {
   sortDir.value = 'asc'
 }
 
+/* Valor de orden REAL: prop del padre en modo servidor, estado local en modo cliente */
+const sortKeyReal = computed(() => (serverMode.value ? props.sortBy : sortKey.value))
+const sortDirReal = computed(() => (serverMode.value ? props.sortDir : sortDir.value))
+
 function flecha(col) {
-  if (sortKey.value !== col.key) return ''
-  return sortDir.value === 'asc' ? '▲' : '▼'
+  if (sortKeyReal.value !== col.key) return ''
+  return sortDirReal.value === 'asc' ? '▲' : '▼'
 }
 
-const totalPages = computed(() => Math.max(1, Math.ceil(ordenadas.value.length / props.pageSize)))
+const serverMode = computed(() => props.total !== null)
+
+const totalPages = computed(() => {
+  if (serverMode.value) return Math.max(1, Math.ceil(props.total / props.pageSize))
+  return Math.max(1, Math.ceil(ordenadas.value.length / props.pageSize))
+})
 const paginated = computed(() =>
-  ordenadas.value.slice((page.value - 1) * props.pageSize, page.value * props.pageSize)
+  serverMode.value
+    ? ordenadas.value
+    : ordenadas.value.slice((page.value - 1) * props.pageSize, page.value * props.pageSize)
 )
 const rango = computed(() => {
-  if (!ordenadas.value.length) return '0'
-  const ini = (page.value - 1) * props.pageSize + 1
-  const fin = Math.min(page.value * props.pageSize, ordenadas.value.length)
-  return `${ini}–${fin} de ${ordenadas.value.length}`
+  const totalReal = serverMode.value ? props.total : ordenadas.value.length
+  if (!totalReal) return '0'
+  const ini = (pageActual.value - 1) * props.pageSize + 1
+  const fin = Math.min(pageActual.value * props.pageSize, totalReal)
+  return `${ini}–${fin} de ${totalReal}`
 })
 
-watch(() => props.rows, () => { if (page.value > totalPages.value) page.value = 1 })
-watch(totalPages, (t) => { if (page.value > t) page.value = t })
-watch(sortKey, () => { page.value = 1 })
-watch(sortDir, () => { page.value = 1 })
+watch(() => props.rows, () => { if (!serverMode.value && page.value > totalPages.value) page.value = 1 })
+watch(totalPages, (t) => { if (!serverMode.value && page.value > t) page.value = t })
+watch(sortKey, () => { if (!serverMode.value) page.value = 1 })
+watch(sortDir, () => { if (!serverMode.value) page.value = 1 })
 
-function goto(p) { page.value = Math.min(Math.max(1, p), totalPages.value) }
+const pageActual = computed(() => (serverMode.value ? props.page : page.value))
+
+function goto(p) {
+  const destino = Math.min(Math.max(1, p), totalPages.value)
+  if (serverMode.value) {
+    if (destino !== props.page) emit('update:page', destino)
+    return
+  }
+  page.value = destino
+}
 
 /* ---- Vista de cards (mobile) ---- */
 const colsCard = computed(() => props.columns.filter((c) => !c.hideOnCard))
@@ -135,9 +177,21 @@ const colsCuerpo = computed(() => colsCard.value.filter((c) => c !== colTitulo.v
 const colsOrdenables = computed(() => props.columns.filter((c) => c.sortable !== false))
 
 function cambiarOrdenMovil(key) {
+  if (serverMode.value) {
+    emit('update:sort', { key: key || '', dir: key ? (sortDirReal.value || 'asc') : 'asc' })
+    return
+  }
   if (!key) { sortKey.value = ''; sortDir.value = 'asc'; return }
   sortKey.value = key
   sortDir.value = 'asc'
+}
+
+function cambiarDir() {
+  if (serverMode.value) {
+    emit('update:sort', { key: sortKeyReal.value, dir: sortDirReal.value === 'asc' ? 'desc' : 'asc' })
+    return
+  }
+  sortDir.value = sortDir.value === 'asc' ? 'desc' : 'asc'
 }
 </script>
 
@@ -147,9 +201,11 @@ function cambiarOrdenMovil(key) {
       <span>{{ error }}</span>
     </div>
 
-    <div v-if="loading" class="state-block">
-      <div class="spinner"></div>
-      <p>Cargando…</p>
+    <div v-if="loading" class="table-skeleton" role="status" aria-live="polite" aria-label="Cargando registros">
+      <p class="skeleton-status"><span class="spinner" aria-hidden="true"></span>Cargando registros…</p>
+      <div v-for="n in 5" :key="n" class="skeleton-row" :style="{ '--skeleton-cols': Math.max(columns.length, 1) }" aria-hidden="true">
+        <span v-for="col in columns" :key="col.key" class="skeleton-cell"></span>
+      </div>
     </div>
 
     <div v-else-if="!rows.length" class="state-block">
@@ -162,7 +218,7 @@ function cambiarOrdenMovil(key) {
         <AppIcon name="sort" :size="16" class="card-sort-icon" />
         <select
           class="select card-sort-select"
-          :value="sortKey"
+          :value="sortKeyReal"
           aria-label="Ordenar por"
           @change="cambiarOrdenMovil($event.target.value)"
         >
@@ -172,12 +228,12 @@ function cambiarOrdenMovil(key) {
         <button
           type="button"
           class="card-sort-dir"
-          :disabled="!sortKey"
-          :title="sortDir === 'asc' ? 'Ascendente' : 'Descendente'"
-          :aria-label="sortDir === 'asc' ? 'Orden ascendente' : 'Orden descendente'"
-          @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+          :disabled="!sortKeyReal"
+          :title="sortDirReal === 'asc' ? 'Ascendente' : 'Descendente'"
+          :aria-label="sortDirReal === 'asc' ? 'Orden ascendente' : 'Orden descendente'"
+          @click="cambiarDir()"
         >
-          <AppIcon :name="sortDir === 'asc' ? 'arrowUp' : 'arrowDown'" :size="15" />
+          <AppIcon :name="sortDirReal === 'asc' ? 'arrowUp' : 'arrowDown'" :size="15" />
         </button>
       </div>
 
@@ -248,11 +304,11 @@ function cambiarOrdenMovil(key) {
     <div v-if="!loading && rows.length" class="table-pagination">
       <span class="muted">{{ rango }}</span>
       <div class="pager">
-        <button class="btn btn-ghost btn-sm" :disabled="page <= 1" @click="goto(page - 1)">
+        <button class="btn btn-ghost btn-sm" :disabled="pageActual <= 1" @click="goto(pageActual - 1)">
           <AppIcon name="chevronLeft" :size="14" /> Anterior
         </button>
-        <span class="pager-num">Página {{ page }} / {{ totalPages }}</span>
-        <button class="btn btn-ghost btn-sm" :disabled="page >= totalPages" @click="goto(page + 1)">
+        <span class="pager-num">Página {{ pageActual }} / {{ totalPages }}</span>
+        <button class="btn btn-ghost btn-sm" :disabled="pageActual >= totalPages" @click="goto(pageActual + 1)">
           Siguiente <AppIcon name="chevronRight" :size="14" />
         </button>
       </div>
@@ -261,6 +317,18 @@ function cambiarOrdenMovil(key) {
 </template>
 
 <style scoped>
+.table-skeleton { min-height: 280px; }
+.skeleton-status { display: flex; align-items: center; gap: .6rem; color: var(--acr-azul); }
+.skeleton-status .spinner { width: 18px; height: 18px; margin: 0; }
+.skeleton-row { display: grid; grid-template-columns: repeat(var(--skeleton-cols), minmax(0, 1fr)); gap: 1rem; padding: 1rem; border-bottom: 1px solid var(--acr-borde); }
+.skeleton-cell { display: block; height: 1rem; border-radius: 5px; background: var(--acr-gris, #EAF1FB); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity: .4; } }
+@media (max-width: 700px) {
+  .skeleton-row { grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--acr-borde); border-radius: 8px; margin-bottom: .6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-cell, .skeleton-status .spinner { animation: none; }
+}
 .table thead th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 .table thead th.sortable:hover { color: var(--acr-azul); }
 .th-content { display: inline-flex; align-items: center; gap: .3rem; }

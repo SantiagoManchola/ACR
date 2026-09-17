@@ -42,6 +42,11 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.meta.public) {
+    // Con token en memoria hay que validarlo: si está muerto (expiró y el
+    // refresh falló) se limpia y se entra al login; nunca rebote al dashboard.
+    if (auth.isAuthenticated && !auth.user) {
+      try { await auth.fetchMe() } catch { auth.logout() }
+    }
     if (auth.isAuthenticated && to.name === 'login') return { name: 'dashboard' }
     return true
   }

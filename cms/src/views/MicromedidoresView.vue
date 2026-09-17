@@ -14,17 +14,20 @@ import VisorFoto from '../components/VisorFoto.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 import { debounce } from '../utils/debounce'
+import { useBusy } from '../utils/async'
 
 const mm = useMicromedidoresStore()
 const auth = useAuthStore()
 const tab = ref('suscriptores')
+/* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
+const { busy: repBusy, run: repRun } = useBusy()
+const { busy: refrescando, run: refRun } = useBusy()
+const { busy: accionBusy, run: accionRun } = useBusy()
 // El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
 const esFontanero = computed(() => auth.rol === 'fontanero')
 const esAdmin = computed(() => auth.rol === 'admin')
 
-const susMap = computed(() => Object.fromEntries(mm.suscriptores.map((s) => [s.id, s.nombre])))
-const susOptions = computed(() => mm.suscriptores.map((s) => ({ value: s.id, label: s.nombre })))
-const mmMap = computed(() => Object.fromEntries(mm.micromedidores.map((m) => [m.id, m.serial])))
+const susOptions = computed(() => mm.opcionesSuscriptores.map((s) => ({ value: s.id, label: s.nombre })))
 const sectorOptions = computed(() => mm.sectores.map((s) => ({
   value: s.nombre,
   label: s.estado === 'activo' ? s.nombre : `${s.nombre} (inactivo)`,
@@ -65,14 +68,23 @@ function askDel(tipo, r) {
 }
 async function doDel() {
   const p = pendingDel.value
-  confirmShow.value = false
   if (!p) return
-  if (p.tipo === 'sus') { await mm.deleteSuscriptor(p.id); await mm.loadSuscriptores() }
-  else if (p.tipo === 'sec') { await mm.deleteSector(p.id); await cargarSectores() }
-  else { await mm.deleteMicromedidor(p.id); await mm.loadMicromedidores() }
-  pendingDel.value = null
+  await accionRun(async () => {
+    if (p.tipo === 'sus') { await mm.deleteSuscriptor(p.id); await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value) }
+    else if (p.tipo === 'sec') { await mm.deleteSector(p.id); await cargarSectores() }
+    else { await mm.deleteMicromedidor(p.id); await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value) }
+    confirmShow.value = false
+    pendingDel.value = null
+  })
 }
-function refreshAll() { return Promise.all([mm.loadSuscriptores(), mm.loadMicromedidores(), mm.loadLecturas()]) }
+function refrescar() { return refRun(refreshAll) }
+function refreshAll() {
+  return Promise.all([
+    mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value),
+    mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value),
+    mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value),
+  ])
+}
 
 /* ---------------- Filtros (auto-búsqueda con debounce) ---------------- */
 const conMedidorOptions = [
@@ -82,6 +94,10 @@ const conMedidorOptions = [
 const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '', con_medidor: null })
 const filtrosMm = ref({ serial: '', suscriptor_id: '', sector: '', condicion: '' })
 const filtrosLec = ref({ sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
+/* Página actual de cada pestaña (paginación server-side) */
+const pageSus = ref(1)
+const pageMm = ref(1)
+const pageLec = ref(1)
 
 function soloNoVacios(obj) {
   const out = {}
@@ -91,17 +107,28 @@ function soloNoVacios(obj) {
   }
   return out
 }
-function buscarSus() { mm.loadSuscriptores(soloNoVacios(filtrosSus.value)) }
-function buscarMm() { mm.loadMicromedidores(soloNoVacios(filtrosMm.value)) }
-function buscarLec() { mm.loadLecturas(soloNoVacios(filtrosLec.value)) }
+/* Orden server-side por pestaña (la API ordena TODA la tabla, no la página) */
+const ordenSus = ref(''); const dirSus = ref('asc')
+const ordenMm = ref(''); const dirMm = ref('asc')
+const ordenLec = ref(''); const dirLec = ref('desc')
+function buscarSus() { mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value) }
+function buscarMm() { mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value) }
+function buscarLec() { mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value, ordenLec.value, dirLec.value) }
 
-/* Al cambiar cualquier filtro se recarga solo (350 ms después de dejar de escribir) */
-const buscarSusDeb = debounce(buscarSus)
-const buscarMmDeb = debounce(buscarMm)
-const buscarLecDeb = debounce(buscarLec)
+/* Al cambiar cualquier filtro se recarga la página 1 (350 ms tras dejar de escribir) */
+const buscarSusDeb = debounce(() => { pageSus.value = 1; buscarSus() })
+const buscarMmDeb = debounce(() => { pageMm.value = 1; buscarMm() })
+const buscarLecDeb = debounce(() => { pageLec.value = 1; buscarLec() })
 watch(filtrosSus, buscarSusDeb, { deep: true })
 watch(filtrosMm, buscarMmDeb, { deep: true })
 watch(filtrosLec, buscarLecDeb, { deep: true })
+function irPaginaSus(p) { pageSus.value = p; buscarSus() }
+function irPaginaMm(p) { pageMm.value = p; buscarMm() }
+function irPaginaLec(p) { pageLec.value = p; buscarLec() }
+/* Cambios de orden: recargar desde la página 1 con el nuevo orden */
+function ordenarSus({ key, dir }) { ordenSus.value = key; dirSus.value = dir; pageSus.value = 1; buscarSus() }
+function ordenarMm({ key, dir }) { ordenMm.value = key; dirMm.value = dir; pageMm.value = 1; buscarMm() }
+function ordenarLec({ key, dir }) { ordenLec.value = key; dirLec.value = dir; pageLec.value = 1; buscarLec() }
 
 /* ---------------- Reportes ---------------- */
 const formatoReporte = ref('csv')
@@ -120,9 +147,14 @@ async function generarReporte(tipo) {
 /* ---------------- Detalle ---------------- */
 const showDetail = ref(false)
 const detailSusMmId = ref(null)
+/* Tipo de detalle fijado al ABRIR el modal ('sus' | 'mm'): no se infiere de la
+   respuesta de la API (el historial de micromedidor incluye el nombre del
+   suscriptor, pero eso no lo convierte en detalle de suscriptor) */
+const detailTipo = ref('')
 // Pestaña dentro del detalle del micromedidor: lecturas | grafico
 const detailTab = ref('lecturas')
 function openDetailSus(r) {
+  detailTipo.value = 'sus'
   detailSusMmId.value = null
   detailTab.value = 'lecturas'
   return mm.loadHistorialSuscriptor(r.id).then(() => {
@@ -131,7 +163,12 @@ function openDetailSus(r) {
     showDetail.value = true
   })
 }
-function openDetailMm(r) { detailTab.value = 'lecturas'; mm.loadHistorialMicromedidor(r.id); showDetail.value = true }
+function openDetailMm(r) {
+  detailTipo.value = 'mm'
+  detailTab.value = 'lecturas'
+  mm.loadHistorialMicromedidor(r.id)
+  showDetail.value = true
+}
 
 /* ---------------- Suscriptores ---------------- */
 const showSus = ref(false)
@@ -158,13 +195,18 @@ async function saveSus() {
   try {
     if (editingSus.value) await mm.updateSuscriptor(editingSus.value.id, susForm.value)
     else await mm.createSuscriptor(susForm.value)
-    showSus.value = false; await mm.loadSuscriptores()
+    showSus.value = false
+    await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value)
+    await mm.loadSuscriptoresOpciones()
   } catch (e) { susError.value = apiError(e) } finally { saving.value = false }
 }
 async function delSus(r) { askDel('sus', r) }
 async function reactivarSus(r) {
-  await mm.updateSuscriptor(r.id, { estado: 'activo' })
-  await mm.loadSuscriptores()
+  await accionRun(async () => {
+    await mm.updateSuscriptor(r.id, { estado: 'activo' })
+    await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value)
+    await mm.loadSuscriptoresOpciones()
+  })
 }
 
 /* ---------------- Sectores (catálogo, solo admin) ---------------- */
@@ -198,8 +240,10 @@ async function saveSec() {
 }
 async function delSec(r) { askDel('sec', r) }
 async function reactivarSec(r) {
-  await mm.updateSector(r.id, { estado: 'activo' })
-  await cargarSectores()
+  await accionRun(async () => {
+    await mm.updateSector(r.id, { estado: 'activo' })
+    await cargarSectores()
+  })
 }
 
 /* ---------------- Micromedidores ---------------- */
@@ -212,7 +256,7 @@ const mmForm = ref(emptyMm())
 const mmCols = [
   { key: 'serial', label: 'Serial', cardTitle: true },
   { key: 'tipo', label: 'Tipo' },
-  { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
+  { key: 'suscriptor', label: 'Suscriptor', sortValue: (r) => r.suscriptor_nombre || '' },
   { key: 'direccion', label: 'Dirección', wide: true },
   { key: 'fecha_instalacion', label: 'Instalación' },
   { key: 'condicion', label: 'Condición' },
@@ -229,13 +273,15 @@ async function saveMm() {
     if (editingMm.value) delete payload.suscriptor_id // un medidor no cambia de suscriptor
     if (editingMm.value) await mm.updateMicromedidor(editingMm.value.id, payload)
     else await mm.createMicromedidor(payload)
-    showMm.value = false; await mm.loadMicromedidores()
+    showMm.value = false; await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value)
   } catch (e) { mmError.value = apiError(e) } finally { saving.value = false }
 }
 async function delMm(r) { askDel('mm', r) }
 async function reactivarMm(r) {
-  await mm.updateMicromedidor(r.id, { estado: 'activo' })
-  await mm.loadMicromedidores()
+  await accionRun(async () => {
+    await mm.updateMicromedidor(r.id, { estado: 'activo' })
+    await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value)
+  })
 }
 
 /* Visor de evidencias fotográficas (miniaturas en tablas -> foto grande) */
@@ -259,8 +305,8 @@ const fotoLecRef = ref(null)
 const lecCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora', hideOnCard: true },
-  { key: 'suscriptor', label: 'Suscriptor', cardTitle: true, sortValue: (r) => susMap.value[r.suscriptor_id] || '' },
-  { key: 'micromedidor_id', label: 'Medidor', sortValue: (r) => mmMap.value[r.micromedidor_id] || '' },
+  { key: 'suscriptor', label: 'Suscriptor', cardTitle: true, sortValue: (r) => r.suscriptor_nombre || '' },
+  { key: 'micromedidor_id', label: 'Medidor', sortValue: (r) => r.medidor_serial || '' },
   { key: 'lectura', label: 'Lectura', align: 'right' },
   { key: 'consumo', label: 'Consumo', align: 'right' },
   { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
@@ -276,8 +322,8 @@ const detailLecCols = [
   { key: 'foto', label: 'Foto', sortable: false },
   { key: 'novedad', label: 'Novedad', wide: true },
 ]
-const detailIsSus = computed(() => !!mm.historial && !!mm.historial.suscriptor)
-const detailEntity = computed(() => mm.historial?.suscriptor || mm.historial?.micromedidor || null)
+const detailIsSus = computed(() => detailTipo.value === 'sus')
+const detailEntity = computed(() => (detailIsSus.value ? mm.historial?.suscriptor : mm.historial?.micromedidor) || null)
 /* En el detalle del suscriptor las lecturas se discriminan por medidor */
 const susMmOptions = computed(() => (mm.historial?.micromedidores || []).map((m) => ({
   value: m.id,
@@ -426,20 +472,20 @@ function abrirPrintChart() { showPrintChart.value = true }
 function imprimir() { window.print() }
 function onPickMedidor(val) {
   const id = val ?? lecForm.value.micromedidor_id
-  const m = mm.micromedidores.find((x) => x.id === id)
+  const m = (mm.opcionesMedidores || []).find((x) => x.id === id)
   if (m && m.suscriptor_id) lecForm.value.suscriptor_id = m.suscriptor_id
 }
 /* Medidores disponibles para registrar lectura: solo ACTIVOS; si hay suscriptor
    seleccionado, únicamente los medidores de ese suscriptor. */
 const lecMmOptions = computed(() => {
-  const activos = mm.micromedidores.filter((m) => m.estado === 'activo')
+  const activos = (mm.opcionesMedidores || []).filter((m) => m.estado === 'activo')
   const lista = lecForm.value.suscriptor_id
     ? activos.filter((m) => m.suscriptor_id === lecForm.value.suscriptor_id)
     : activos
   return lista.map((m) => ({ value: m.id, label: m.serial }))
 })
 watch(() => lecForm.value.suscriptor_id, (sid) => {
-  const activos = mm.micromedidores.filter((m) => m.estado === 'activo' && m.suscriptor_id === sid)
+  const activos = (mm.opcionesMedidores || []).filter((m) => m.estado === 'activo' && m.suscriptor_id === sid)
   if (activos.length === 1) {
     // Un solo medidor asociado: se selecciona automáticamente
     lecForm.value.micromedidor_id = activos[0].id
@@ -477,8 +523,10 @@ async function saveLec() {
 }
 
 onMounted(async () => {
-  await mm.loadSuscriptores()
-  await mm.loadMicromedidores()
+  await mm.loadSuscriptoresOpciones()
+  await mm.loadMicromedidoresOpciones()
+  buscarSus()
+  buscarMm()
   buscarLec()
   await mm.loadSectores()
 })
@@ -514,9 +562,16 @@ onMounted(async () => {
       </div>
       <div class="toolbar">
         <button v-if="!esFontanero" class="btn btn-primary" @click="openNewSus"><AppIcon name="plus" />Nuevo suscriptor</button>
-        <button class="btn btn-ghost" @click="refreshAll"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
-      <DataTable :columns="susCols" :rows="mm.suscriptores" :loading="mm.loading" empty-text="Sin suscriptores.">
+      <DataTable
+        :columns="susCols" :rows="mm.suscriptores" :loading="mm.loading"
+        :total="mm.suscriptoresTotal" :page="pageSus" :page-size="20"
+        :sort-by="ordenSus" :sort-dir="dirSus"
+        empty-text="Sin suscriptores."
+        @update:page="irPaginaSus"
+        @update:sort="ordenarSus"
+      >
         <template #cell="{ row, col }">
           <span v-if="col.key === 'tipo_usuario'" style="text-transform:capitalize">{{ row.tipo_usuario }}</span>
           <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
@@ -526,13 +581,13 @@ onMounted(async () => {
           <button v-if="!esFontanero" class="btn btn-ghost btn-sm" @click="openEditSus(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
           <button class="btn btn-ghost btn-sm" @click="openDetailSus(row)" title="Detalle"><AppIcon name="eye" :size="16" /></button>
           <button v-if="!esFontanero && row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delSus(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" @click="reactivarSus(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="accionRun(() => reactivarSus(row))" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
       <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de suscriptores:</span>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('suscriptores')"><AppIcon name="download" />Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('suscriptores'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -552,11 +607,18 @@ onMounted(async () => {
       </div>
       <div class="toolbar">
         <button v-if="!esFontanero" class="btn btn-primary" @click="openNewMm"><AppIcon name="plus" />Nuevo micromedidor</button>
-        <button class="btn btn-ghost" @click="refreshAll"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
-      <DataTable :columns="mmCols" :rows="mm.micromedidores" :loading="mm.loading" empty-text="Sin micromedidores.">
+      <DataTable
+        :columns="mmCols" :rows="mm.micromedidores" :loading="mm.loading"
+        :total="mm.micromedidoresTotal" :page="pageMm" :page-size="20"
+        :sort-by="ordenMm" :sort-dir="dirMm"
+        empty-text="Sin micromedidores."
+        @update:page="irPaginaMm"
+        @update:sort="ordenarMm"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'suscriptor'">{{ susMap[row.suscriptor_id] || '—' }}</span>
+          <span v-if="col.key === 'suscriptor'">{{ row.suscriptor_nombre || '—' }}</span>
           <span v-else-if="col.key === 'condicion'"><span class="badge" :class="condicionTone(row.condicion)" style="text-transform:capitalize">{{ row.condicion || 'bueno' }}</span></span>
           <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -565,13 +627,13 @@ onMounted(async () => {
           <button v-if="!esFontanero" class="btn btn-ghost btn-sm" @click="openEditMm(row)" title="Editar"><AppIcon name="edit" :size="16" /></button>
           <button class="btn btn-ghost btn-sm" @click="openDetailMm(row)" title="Detalle"><AppIcon name="eye" :size="16" /></button>
           <button v-if="!esFontanero && row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delMm(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" @click="reactivarMm(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-if="!esFontanero && row.estado !== 'activo'" class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="accionRun(() => reactivarMm(row))" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
       <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de micromedidores:</span>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('micromedidores')"><AppIcon name="download" />Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('micromedidores'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -586,16 +648,23 @@ onMounted(async () => {
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewLec"><AppIcon name="plus" />Registrar lectura</button>
-        <button class="btn btn-ghost" @click="refreshAll"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
-      <DataTable :columns="lecCols" :rows="mm.lecturas" :loading="mm.loading" empty-text="Sin lecturas registradas.">
+      <DataTable
+        :columns="lecCols" :rows="mm.lecturas" :loading="mm.loading"
+        :total="mm.lecturasTotal" :page="pageLec" :page-size="20"
+        :sort-by="ordenLec" :sort-dir="dirLec"
+        empty-text="Sin lecturas registradas."
+        @update:page="irPaginaLec"
+        @update:sort="ordenarLec"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'suscriptor'">{{ susMap[row.suscriptor_id] || row.suscriptor_id }}</span>
-          <span v-else-if="col.key === 'micromedidor_id'">{{ mmMap[row.micromedidor_id] || row.micromedidor_id }}</span>
+          <span v-if="col.key === 'suscriptor'">{{ row.suscriptor_nombre || row.suscriptor_id }}</span>
+          <span v-else-if="col.key === 'micromedidor_id'">{{ row.medidor_serial || row.micromedidor_id }}</span>
           <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'" :title="row.promedio_usado ? 'Consumo estimado con el promedio histórico (no fue posible tomar la medición)' : 'Medición física del medidor'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
           <span v-else-if="col.key === 'foto'">
             <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
-              @click="verFoto(row.foto_url, `${mmMap[row.micromedidor_id] || 'Medidor'} · ${row.fecha}`)" />
+              @click="verFoto(row.foto_url, `${row.medidor_serial || 'Medidor'} · ${row.fecha}`)" />
             <span v-else class="muted">—</span>
           </span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -604,7 +673,7 @@ onMounted(async () => {
       <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de lecturas:</span>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('lecturas')"><AppIcon name="download" />Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('lecturas'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -624,7 +693,7 @@ onMounted(async () => {
         <template #row-actions="{ row }">
           <button class="btn btn-ghost btn-sm" @click="openEditSec(row)" title="Renombrar"><AppIcon name="edit" :size="16" /></button>
           <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="delSec(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-else class="btn btn-ghost btn-sm" @click="reactivarSec(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-else class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="accionRun(() => reactivarSec(row))" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
     </div>
@@ -737,7 +806,7 @@ onMounted(async () => {
         <template v-else>
           <div><strong>Serial:</strong> {{ detailEntity.serial }}</div>
           <div><strong>Tipo:</strong> {{ detailEntity.tipo }}</div>
-          <div><strong>Suscriptor:</strong> {{ susMap[detailEntity.suscriptor_id] || detailEntity.suscriptor_id }}</div>
+          <div><strong>Suscriptor:</strong> {{ mm.historial?.suscriptor_nombre || detailEntity.suscriptor_id || '—' }}</div>
           <div><strong>Dirección:</strong> {{ detailEntity.direccion }}</div>
           <div><strong>Instalación:</strong> {{ detailEntity.fecha_instalacion }}</div>
           <div><strong>Condición:</strong> <span class="badge" :class="condicionTone(detailEntity.condicion)" style="text-transform:capitalize">{{ detailEntity.condicion || 'bueno' }}</span></div>
@@ -749,7 +818,7 @@ onMounted(async () => {
         <h3 class="mt-2">Micromedidores</h3>
         <DataTable :columns="mmCols" :rows="mm.historial?.micromedidores || []" empty-text="Sin micromedidores asociados.">
           <template #cell="{ row, col }">
-            <span v-if="col.key === 'suscriptor'">{{ susMap[row.suscriptor_id] || '—' }}</span>
+            <span v-if="col.key === 'suscriptor'">{{ mm.historial?.suscriptor?.nombre || row.suscriptor_nombre || '—' }}</span>
             <span v-else-if="col.key === 'condicion'"><span class="badge" :class="condicionTone(row.condicion)" style="text-transform:capitalize">{{ row.condicion || 'bueno' }}</span></span>
             <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
             <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -886,7 +955,7 @@ onMounted(async () => {
         <div class="print-title">Historial de mediciones del micromedidor</div>
         <table class="print-meta">
           <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Tipo</th><td>{{ detailEntity?.tipo || '—' }}</td></tr>
-          <tr><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td><th>Dirección</th><td>{{ detailEntity?.direccion || '—' }}</td></tr>
+          <tr><th>Suscriptor</th><td>{{ mm.historial?.suscriptor_nombre || detailEntity?.suscriptor_id || '—' }}</td><th>Dirección</th><td>{{ detailEntity?.direccion || '—' }}</td></tr>
           <tr><th>Periodo</th><td>{{ printPeriodo }}</td><th>Condición</th><td style="text-transform:capitalize">{{ detailEntity?.condicion || 'bueno' }}</td></tr>
           <tr><th>Promedio histórico</th><td colspan="3"><strong>{{ promedioHistorico === null || promedioHistorico === undefined ? '— (sin consumos históricos)' : fmtNum(promedioHistorico) + ' m³' }}</strong> — promedio validado de los consumos de las últimas {{ promedioBaseN }} lectura(s) con consumo</td></tr>
         </table>
@@ -943,7 +1012,7 @@ onMounted(async () => {
         </div>
         <div class="print-title">Consumo — últimas 6 mediciones del micromedidor</div>
         <table class="print-meta">
-          <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Suscriptor</th><td>{{ susMap[detailEntity?.suscriptor_id] || detailEntity?.suscriptor_id || '—' }}</td></tr>
+          <tr><th>Medidor (serial)</th><td>{{ detailEntity?.serial }}</td><th>Suscriptor</th><td>{{ mm.historial?.suscriptor_nombre || detailEntity?.suscriptor_id || '—' }}</td></tr>
           <tr><th>Periodo graficado</th><td>{{ chartPeriodo }}</td><th>Promedio histórico</th><td><strong>{{ promedioHistorico === null || promedioHistorico === undefined ? '—' : fmtNum(promedioHistorico) + ' m³' }}</strong> (base {{ promedioBaseN }})</td></tr>
         </table>
         <div class="chart-print-bars">
@@ -1000,7 +1069,7 @@ onMounted(async () => {
       </template>
     </BaseModal>
 
-    <ConfirmModal v-model:show="confirmShow" :title="confirmTitle" :message="confirmMsg" confirm-text="Sí, inactivar" danger @confirm="doDel" />
+    <ConfirmModal v-model:show="confirmShow" :title="confirmTitle" :message="confirmMsg" confirm-text="Sí, inactivar" danger :loading="accionBusy" @confirm="doDel" />
 
     <VisorFoto v-model:show="visorShow" :src="visorSrc" :titulo="visorTitulo" />
   </div>

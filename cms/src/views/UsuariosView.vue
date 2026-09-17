@@ -10,11 +10,15 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import ConfirmModal from '../components/ConfirmModal.vue'
 import PasswordInput from '../components/PasswordInput.vue'
 import { apiError } from '../api/http'
+import { useBusy } from '../utils/async'
 
 const usu = useUsuariosStore()
 const auth = useAuthStore()
 const tab = ref('usuarios')
 const saving = ref(false)
+/* Cargas de botones asíncronos */
+const { busy: refrescando, run: refRun } = useBusy()
+const { busy: accionBusy, run: accionRun } = useBusy()
 
 /* Confirmación de acciones destructivas */
 const confirmShow = ref(false)
@@ -28,13 +32,22 @@ function askToggle(r) {
 }
 async function doToggle() {
   const r = pendingToggle.value
-  confirmShow.value = false
   if (!r) return
-  const nuevo = r.estado === 'activo' ? 'inactivo' : 'activo'
-  await usu.updateUsuario(r.id, { estado: nuevo })
-  await usu.loadUsuarios()
-  pendingToggle.value = null
+  await accionRun(async () => {
+    const nuevo = r.estado === 'activo' ? 'inactivo' : 'activo'
+    await usu.updateUsuario(r.id, { estado: nuevo })
+    await cargarUsuarios()
+    confirmShow.value = false
+    pendingToggle.value = null
+  })
 }
+
+/* Paginación y orden server-side de la tabla de usuarios */
+const pageUsu = ref(1)
+const ordenUsu = ref(''); const dirUsu = ref('asc')
+function cargarUsuarios() { return usu.loadUsuarios(pageUsu.value, ordenUsu.value, dirUsu.value) }
+function irPaginaUsu(p) { pageUsu.value = p; cargarUsuarios() }
+function ordenarUsu({ key, dir }) { ordenUsu.value = key; dirUsu.value = dir; pageUsu.value = 1; cargarUsuarios() }
 
 const rolMap = (id) => usu.roles.find((r) => r.id === id)?.nombre || id
 const rolOptions = computed(() => usu.roles.map((r) => ({ value: r.id, label: r.nombre })))
@@ -63,11 +76,11 @@ async function saveUser() {
     if (userForm.value.password) payload.password = userForm.value.password
     if (editingUser.value) await usu.updateUsuario(editingUser.value.id, payload)
     else await usu.createUsuario(payload)
-    showUser.value = false; await usu.loadUsuarios()
+    showUser.value = false; await cargarUsuarios()
   } catch (e) { userError.value = apiError(e) } finally { saving.value = false }
 }
 
-function refreshUsuarios() { return usu.loadUsuarios() }
+function refrescar() { return refRun(cargarUsuarios) }
 
 /* Roles */
 const showRol = ref(false)
@@ -89,7 +102,7 @@ async function saveRol() {
 
 onMounted(async () => {
   await usu.loadRoles()
-  await usu.loadUsuarios()
+  await cargarUsuarios()
 })
 </script>
 
@@ -106,9 +119,16 @@ onMounted(async () => {
     <div v-if="tab === 'usuarios'" class="tab-panel">
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewUser"><AppIcon name="userplus" />Nuevo usuario</button>
-        <button class="btn btn-ghost" @click="refreshUsuarios"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
-      <DataTable :columns="userCols" :rows="usu.usuarios" :loading="usu.loading" empty-text="Sin usuarios registrados.">
+      <DataTable
+        :columns="userCols" :rows="usu.usuarios" :loading="usu.loading"
+        :total="usu.usuariosTotal" :page="pageUsu" :page-size="20"
+        :sort-by="ordenUsu" :sort-dir="dirUsu"
+        empty-text="Sin usuarios registrados."
+        @update:page="irPaginaUsu"
+        @update:sort="ordenarUsu"
+      >
         <template #cell="{ row, col }">
           <span v-if="col.key === 'rol'">{{ rolMap(row.rol_id) }}</span>
           <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
@@ -116,7 +136,7 @@ onMounted(async () => {
         </template>
         <template #row-actions="{ row }">
           <button class="btn btn-ghost btn-sm" @click="openEditUser(row)"><AppIcon name="edit" :size="16" /></button>
-          <button v-if="!row.es_superadmin" class="btn btn-ghost btn-sm" @click="askToggle(row)" title="Activar/Inactivar"><AppIcon :name="row.estado === 'activo' ? 'close' : 'check'" :size="16" /></button>
+          <button v-if="!row.es_superadmin" class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="askToggle(row)" title="Activar/Inactivar"><AppIcon :name="row.estado === 'activo' ? 'close' : 'check'" :size="16" /></button>
         </template>
       </DataTable>
     </div>
@@ -155,6 +175,6 @@ onMounted(async () => {
       </template>
     </BaseModal>
 
-    <ConfirmModal v-model:show="confirmShow" title="Cambiar estado de usuario" :message="confirmMsg" confirm-text="Confirmar" danger @confirm="doToggle" />
+    <ConfirmModal v-model:show="confirmShow" title="Cambiar estado de usuario" :message="confirmMsg" confirm-text="Confirmar" danger :loading="accionBusy" @confirm="doToggle" />
   </div>
 </template>

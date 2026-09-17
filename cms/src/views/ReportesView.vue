@@ -19,6 +19,7 @@ const fechaInicio = ref(hoyColombia())
 const fechaFin = ref(hoyColombia())
 const preview = ref([])
 const previewCols = ref([])
+const previewTotal = ref(0)
 const loading = ref(false)
 const error = ref('')
 const ok = ref('')
@@ -54,8 +55,12 @@ async function verPreview() {
   error.value = ''; ok.value = ''; loading.value = true
   try {
     const { data } = await client.get(moduloActual.value.endpoint, { params: { ...buildParams(), formato: 'json' } })
-    preview.value = data
-    const keys = data.length ? Object.keys(data[0]) : moduloActual.value.cols
+    /* La vista previa se limita a 200 filas: el listado completo siempre
+       está disponible en la descarga (CSV/Excel/PDF). */
+    const filas = Array.isArray(data) ? data : []
+    preview.value = filas.slice(0, 200)
+    previewTotal.value = filas.length
+    const keys = preview.value.length ? Object.keys(preview.value[0]) : moduloActual.value.cols
     previewCols.value = keys.map((k) => ({ key: k, label: colLabel(k) }))
   } catch (e) {
     error.value = e.response?.data?.detail || 'No se pudo generar la vista previa'
@@ -118,20 +123,21 @@ watch([modulo, sector, fueraRango, fechaInicio, fechaFin], () => { if (puedeVer.
           <label>Hasta</label>
           <BaseInput v-model="fechaFin" type="date" />
         </div>
-        <button class="btn btn-ghost" @click="verPreview"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="loading" @click="verPreview"><span v-if="loading" class="spinner"></span><AppIcon v-else name="refresh" />{{ loading ? 'Generando…' : 'Refrescar' }}</button>
       </div>
 
       <div class="toolbar">
         <label class="muted" style="align-self:center">Exportar:</label>
         <SearchableSelect v-model="formato" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-primary" @click="exportar" :disabled="loading"><AppIcon name="download" />Descargar</button>
+        <button class="btn btn-primary" @click="exportar" :disabled="loading"><span v-if="loading" class="spinner"></span><AppIcon v-else name="download" />{{ loading ? 'Generando…' : 'Descargar' }}</button>
       </div>
 
       <BaseAlert v-if="error" type="bad" class="mb-1">{{ error }}</BaseAlert>
       <BaseAlert v-if="ok" type="ok" class="mb-1">{{ ok }}</BaseAlert>
 
-      <div v-if="preview.length" class="mt-2 preview-wrap">
-        <h3>Vista previa ({{ preview.length }} filas)</h3>
+      <div v-if="preview.length || loading" class="mt-2 preview-wrap">
+        <h3>Vista previa ({{ previewTotal > 200 ? `primeras 200 de ${previewTotal}` : `${previewTotal} filas` }})</h3>
+        <p v-if="previewTotal > 200" class="muted" style="font-size:.82rem">Vista previa limitada a 200 filas: descargue el reporte para obtener el listado completo.</p>
         <DataTable :columns="previewCols" :rows="preview" :loading="loading" />
       </div>
     </div>

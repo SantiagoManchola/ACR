@@ -1,25 +1,40 @@
 import { defineStore } from 'pinia'
 import client, { apiError } from '../api/http'
 
+const PAGE_SIZE = 20
+
 export const useMicromedidoresStore = defineStore('micromedidores', {
   state: () => ({
     suscriptores: [],
+    suscriptoresTotal: 0,
     micromedidores: [],
+    micromedidoresTotal: 0,
     lecturas: [],
+    lecturasTotal: 0,
     consumo: [],
     sectores: [],
     historial: null,
+    // Listas ligeras para selects/filtros (no paginadas)
+    opcionesSuscriptores: [],
+    opcionesMedidores: [],
     loading: false,
     error: null,
   }),
   actions: {
-    async loadSuscriptores(filtros = {}) {
+    async loadSuscriptores(filtros = {}, page = 1, orden = '', dir = 'asc') {
       this.loading = true
       this.error = null
       try {
-        const { data } = await client.get('/suscriptores', { params: filtros })
-        this.suscriptores = data
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/suscriptores', { params })
+        this.suscriptores = data.items
+        this.suscriptoresTotal = data.total
       } catch (e) { this.error = apiError(e) } finally { this.loading = false }
+    },
+    async loadSuscriptoresOpciones() {
+      const { data } = await client.get('/suscriptores/opciones')
+      this.opcionesSuscriptores = data
     },
     async loadSectores() {
       this.error = null
@@ -49,28 +64,38 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
         this.historial = data
       } catch (e) { this.error = apiError(e) }
     },
-    async createSuscriptor(p) { const { data } = await client.post('/suscriptores', p); this.suscriptores.push(data); return data },
-    async updateSuscriptor(id, p) { const { data } = await client.patch(`/suscriptores/${id}`, p); const i = this.suscriptores.findIndex((s) => s.id === id); if (i >= 0) this.suscriptores[i] = data; return data },
-    async deleteSuscriptor(id) { await client.delete(`/suscriptores/${id}`); const i = this.suscriptores.findIndex((s) => s.id === id); if (i >= 0) this.suscriptores[i].estado = 'inactivo' },
+    async createSuscriptor(p) { const { data } = await client.post('/suscriptores', p); return data },
+    async updateSuscriptor(id, p) { const { data } = await client.patch(`/suscriptores/${id}`, p); return data },
+    async deleteSuscriptor(id) { await client.delete(`/suscriptores/${id}`); },
 
-    async loadMicromedidores(filtros = {}) {
+    async loadMicromedidores(filtros = {}, page = 1, orden = '', dir = 'asc') {
       this.loading = true
       this.error = null
       try {
-        const { data } = await client.get('/micromedidores', { params: filtros })
-        this.micromedidores = data
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/micromedidores', { params })
+        this.micromedidores = data.items
+        this.micromedidoresTotal = data.total
       } catch (e) { this.error = apiError(e) } finally { this.loading = false }
     },
-    async createMicromedidor(p) { const { data } = await client.post('/micromedidores', p); this.micromedidores.push(data); return data },
-    async updateMicromedidor(id, p) { const { data } = await client.patch(`/micromedidores/${id}`, p); const i = this.micromedidores.findIndex((m) => m.id === id); if (i >= 0) this.micromedidores[i] = data; return data },
-    async deleteMicromedidor(id) { await client.delete(`/micromedidores/${id}`); const i = this.micromedidores.findIndex((m) => m.id === id); if (i >= 0) this.micromedidores[i].estado = 'inactivo' },
+    async loadMicromedidoresOpciones() {
+      const { data } = await client.get('/micromedidores/opciones')
+      this.opcionesMedidores = data
+    },
+    async createMicromedidor(p) { const { data } = await client.post('/micromedidores', p); return data },
+    async updateMicromedidor(id, p) { const { data } = await client.patch(`/micromedidores/${id}`, p); return data },
+    async deleteMicromedidor(id) { await client.delete(`/micromedidores/${id}`); },
 
-    async loadLecturas(filtros = {}) {
+    async loadLecturas(filtros = {}, page = 1, orden = '', dir = 'desc') {
       this.loading = true
       this.error = null
       try {
-        const { data } = await client.get('/lecturas', { params: filtros })
-        this.lecturas = data
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/lecturas', { params })
+        this.lecturas = data.items
+        this.lecturasTotal = data.total
       } catch (e) { this.error = apiError(e) } finally { this.loading = false }
     },
     async createLectura(p) { const { data } = await client.post('/lecturas', p); return data },

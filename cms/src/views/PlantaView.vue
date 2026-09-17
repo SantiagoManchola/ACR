@@ -16,6 +16,7 @@ import GraficoHoras from '../components/GraficoHoras.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
 import { debounce } from '../utils/debounce'
+import { useBusy } from '../utils/async'
 
 const planta = usePlantaStore()
 const inv = useInventarioStore()
@@ -23,6 +24,9 @@ const usu = useUsuariosStore()
 const auth = useAuthStore()
 const tab = ref('parametros')
 const saving = ref(false)
+/* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
+const { busy: repBusy, run: repRun } = useBusy()
+const { busy: refrescando, run: refRun } = useBusy()
 // El operario NO puede hacer CRUD de parámetros ni crear/editar químicos:
 // solo registra INGRESOS (entradas) de químicos YA EXISTENTES en la planta.
 // El backend lo restringe a químicos EN planta (403 en otro caso).
@@ -30,8 +34,7 @@ const esOperario = computed(() => auth.rol === 'operario')
 const puedeGestionarUsuarios = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 
 const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => [p.id, p])))
-const userMap = computed(() => Object.fromEntries(usu.usuarios.map((u) => [u.id, u.nombre])))
-const userOptions = computed(() => usu.usuarios.map((u) => ({ value: u.id, label: u.nombre })))
+const userOptions = computed(() => (usu.opciones.length ? usu.opciones : planta.usuariosOpciones).map((u) => ({ value: u.id, label: u.nombre })))
 const paramOptions = computed(() => planta.parametros.map((p) => ({ value: p.id, label: p.nombre })))
 
 /* Visor de evidencias fotográficas (miniaturas en tablas -> foto grande) */
@@ -79,22 +82,40 @@ async function generarReporte(tipo, filtros = {}) {
 }
 
 /* Filtros por pestaña (fechas por defecto: hoy en Colombia; auto-búsqueda con debounce) */
+/* Página y orden de cada tabla (paginación y orden server-side) */
+const pageMed = ref(1)
+const pageAct = ref(1)
+const pageDosis = ref(1)
+const pageHora = ref(1)
+const ordenMed = ref(''); const dirMed = ref('desc')
+const ordenAct = ref(''); const dirAct = ref('desc')
+const ordenDosis = ref(''); const dirDosis = ref('desc')
+const ordenHora = ref(''); const dirHora = ref('desc')
+
 const medFiltro = ref({ parametro_id: '', fuera_rango: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
-function filtrarMed() { planta.loadMediciones(buildFiltros(medFiltro.value)) }
+function filtrarMed() { planta.loadMediciones(buildFiltros(medFiltro.value), pageMed.value, ordenMed.value, dirMed.value) }
 
 const actFiltro = ref({ tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
-function filtrarAct() { planta.loadActividades(buildFiltros(actFiltro.value)) }
+function filtrarAct() { planta.loadActividades(buildFiltros(actFiltro.value), pageAct.value, ordenAct.value, dirAct.value) }
 
 const dosisFiltro = ref({ elemento_id: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
-function filtrarDosis() { planta.loadDosificaciones(buildFiltros(dosisFiltro.value)) }
+function filtrarDosis() { planta.loadDosificaciones(buildFiltros(dosisFiltro.value), pageDosis.value, ordenDosis.value, dirDosis.value) }
 
 const horaFiltro = ref({ fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
-function filtrarHora() { planta.loadHoras(buildFiltros(horaFiltro.value)) }
+function filtrarHora() { planta.loadHoras(buildFiltros(horaFiltro.value), pageHora.value, ordenHora.value, dirHora.value) }
 
-watch(medFiltro, debounce(() => filtrarMed(), 350), { deep: true })
-watch(actFiltro, debounce(() => filtrarAct(), 350), { deep: true })
-watch(dosisFiltro, debounce(() => filtrarDosis(), 350), { deep: true })
-watch(horaFiltro, debounce(() => filtrarHora(), 350), { deep: true })
+watch(medFiltro, debounce(() => { pageMed.value = 1; filtrarMed() }, 350), { deep: true })
+watch(actFiltro, debounce(() => { pageAct.value = 1; filtrarAct() }, 350), { deep: true })
+watch(dosisFiltro, debounce(() => { pageDosis.value = 1; filtrarDosis() }, 350), { deep: true })
+watch(horaFiltro, debounce(() => { pageHora.value = 1; filtrarHora() }, 350), { deep: true })
+function irPaginaMed(p) { pageMed.value = p; filtrarMed() }
+function irPaginaAct(p) { pageAct.value = p; filtrarAct() }
+function irPaginaDosis(p) { pageDosis.value = p; filtrarDosis() }
+function irPaginaHora(p) { pageHora.value = p; filtrarHora() }
+function ordenarMed({ key, dir }) { ordenMed.value = key; dirMed.value = dir; pageMed.value = 1; filtrarMed() }
+function ordenarAct({ key, dir }) { ordenAct.value = key; dirAct.value = dir; pageAct.value = 1; filtrarAct() }
+function ordenarDosis({ key, dir }) { ordenDosis.value = key; dirDosis.value = dir; pageDosis.value = 1; filtrarDosis() }
+function ordenarHora({ key, dir }) { ordenHora.value = key; dirHora.value = dir; pageHora.value = 1; filtrarHora() }
 
 const fueraRangoOptions = [
   { value: 'true', label: 'Sí' },
@@ -105,13 +126,14 @@ const tipoAguaOptions = [
   { value: 'tratada', label: 'Tratada' },
 ]
 
+function refrescar() { return refRun(refreshPlanta) }
 function refreshPlanta() {
   const tareas = [
-    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadMediciones(),
-    planta.loadFueraRango(), planta.loadActividades(), planta.loadDosificaciones(),
-    planta.loadHoras(),
+    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(),
+    filtrarMed(), filtrarAct(), filtrarDosis(), filtrarHora(),
+    planta.loadFueraRango(),
   ]
-  if (puedeGestionarUsuarios.value) tareas.push(usu.loadUsuarios())
+  if (puedeGestionarUsuarios.value) tareas.push(usu.loadOpciones())
   return Promise.all(tareas)
 }
 
@@ -150,11 +172,11 @@ const fotoMedRef = ref(null)
 const medCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora', hideOnCard: true },
-  { key: 'parametro', label: 'Parámetro', cardTitle: true, sortValue: (r) => paramMap.value[r.parametro_id]?.nombre || '' },
+  { key: 'parametro', label: 'Parámetro', cardTitle: true, sortValue: (r) => r.parametro_nombre || '' },
   { key: 'tipo_agua', label: 'Tipo de agua', hideOnCard: true, sortValue: (r) => paramMap.value[r.parametro_id]?.tipo_agua || '' },
   { key: 'valor', label: 'Valor', align: 'right', num: true },
   { key: 'unidad', label: 'Unidad', sortValue: (r) => paramMap.value[r.parametro_id]?.unidad || '' },
-  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => r.responsable_nombre || '' },
   { key: 'fuera_rango', label: 'Estado' },
   { key: 'foto', label: 'Foto', sortable: false },
   { key: 'accion_correctiva', label: 'Acción correctiva', wide: true },
@@ -184,7 +206,7 @@ async function saveMed() {
       observaciones: medForm.value.observaciones || null,
       foto_url: medForm.value.foto_url || null,
     })
-    showMed.value = false; await Promise.all([planta.loadMediciones(), planta.loadFueraRango()])
+    showMed.value = false; await Promise.all([filtrarMed(), planta.loadFueraRango()])
   } catch (e) { medError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -300,7 +322,7 @@ async function saveDosis() {
       unidad_tasa: dosisForm.value.unidad_tasa || 'ml/min',
       observaciones: dosisForm.value.observaciones || null,
     })
-     showDosis.value = false; await Promise.all([planta.loadDosificaciones(), inv.loadQuimicos()])
+     showDosis.value = false; await Promise.all([filtrarDosis(), inv.loadQuimicos()])
   } catch (e) { dosisError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -353,7 +375,7 @@ const actCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora', hideOnCard: true },
   { key: 'tipo', label: 'Tipo', cardTitle: true },
-  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => r.responsable_nombre || '' },
   { key: 'estado', label: 'Estado' },
   { key: 'observaciones', label: 'Observaciones', wide: true },
   { key: 'evidencia', label: 'Evidencia', wide: true },
@@ -373,7 +395,7 @@ async function saveAct() {
       responsable_id: actForm.value.responsable_id ? Number(actForm.value.responsable_id) : null,
       foto_url: actForm.value.foto_url || null,
     })
-    showAct.value = false; await planta.loadActividades()
+    showAct.value = false; await filtrarAct()
   } catch (e) { actError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -392,13 +414,16 @@ async function saveHora() {
   horaError.value = ''
   if (!horaForm.value.horas) { horaError.value = 'Ingrese las horas de servicio.'; return }
   saving.value = true
-  try { await planta.createHoraServicio({ fecha: horaForm.value.fecha || new Date().toISOString().slice(0, 10), horas: Number(horaForm.value.horas), responsable_id: horaForm.value.responsable_id ? Number(horaForm.value.responsable_id) : null, observaciones: horaForm.value.observaciones || null });     showHora.value = false; await planta.loadHoras(); graficoHorasRef.value?.recargar() }
+  try { await planta.createHoraServicio({ fecha: horaForm.value.fecha || new Date().toISOString().slice(0, 10), horas: Number(horaForm.value.horas), responsable_id: horaForm.value.responsable_id ? Number(horaForm.value.responsable_id) : null, observaciones: horaForm.value.observaciones || null });     showHora.value = false; await filtrarHora(); graficoHorasRef.value?.recargar() }
   catch (e) { horaError.value = apiError(e) } finally { saving.value = false }
 }
 
 onMounted(async () => {
-  const tareas = [planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadFueraRango()]
-  if (puedeGestionarUsuarios.value) tareas.push(usu.loadUsuarios())
+  const tareas = [
+    planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(), planta.loadFueraRango(),
+    planta.loadUsuariosOpciones(),
+  ]
+  if (puedeGestionarUsuarios.value) tareas.push(usu.loadOpciones())
   await Promise.all(tareas)
   filtrarMed()
   filtrarAct()
@@ -424,7 +449,7 @@ watch(tab, (t) => {
     <p class="muted">Parámetros, mediciones, dosificaciones, actividades y horas de servicio.</p>
 
     <div class="toolbar" style="margin-bottom:1rem">
-      <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
+      <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
     </div>
 
     <div class="tabs">
@@ -472,11 +497,18 @@ watch(tab, (t) => {
         <div class="field"><label>Hasta</label><BaseInput v-model="medFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewMed"><AppIcon name="plus" />Registrar medición</button></div>
-      <DataTable :columns="medCols" :rows="planta.mediciones" :loading="planta.loading" empty-text="Sin mediciones registradas.">
+      <DataTable
+        :columns="medCols" :rows="planta.mediciones" :loading="planta.loading"
+        :total="planta.medicionesTotal" :page="pageMed" :page-size="20"
+        :sort-by="ordenMed" :sort-dir="dirMed"
+        empty-text="Sin mediciones registradas."
+        @update:page="irPaginaMed"
+        @update:sort="ordenarMed"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'parametro'">{{ paramMap[row.parametro_id]?.nombre || row.parametro_id }}</span>
+          <span v-if="col.key === 'parametro'">{{ row.parametro_nombre || paramMap[row.parametro_id]?.nombre || row.parametro_id }}</span>
           <span v-else-if="col.key === 'tipo_agua'" style="text-transform:capitalize">{{ paramMap[row.parametro_id]?.tipo_agua || '—' }}</span>
-          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-else-if="col.key === 'responsable'">{{ row.responsable_nombre || '—' }}</span>
           <span v-else-if="col.key === 'unidad'">{{ paramMap[row.parametro_id]?.unidad || '—' }}</span>
           <span v-else-if="col.key === 'fuera_rango'"><span class="badge" :class="row.fuera_rango ? 'badge-bad' : 'badge-ok'">{{ row.fuera_rango ? 'Fuera de rango' : 'En rango' }}</span></span>
           <span v-else-if="col.key === 'foto'">
@@ -491,7 +523,7 @@ watch(tab, (t) => {
       <div class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('mediciones', medFiltro)">Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('mediciones', medFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -519,7 +551,7 @@ watch(tab, (t) => {
       <p class="muted" v-else>Mostrando únicamente la disponibilidad de químicos en <strong>{{ plantaUbi.nombre }}</strong>.</p>
       <div class="toolbar">
         <button v-if="!esOperario" class="btn btn-primary" @click="openNewProd" :disabled="!plantaUbi"><AppIcon name="plus" />Nuevo químico</button>
-        <button class="btn btn-ghost" @click="refreshPlanta"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
       <DataTable :columns="prodCols" :rows="quimicosPlanta" :loading="inv.loading" empty-text="Sin químicos registrados en la planta.">
         <template #cell="{ row, col }">
@@ -541,7 +573,7 @@ watch(tab, (t) => {
       <div class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('quimicos', {})">Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('quimicos', {}))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -569,9 +601,16 @@ watch(tab, (t) => {
           <span class="resumen-dato" v-else>Registra la tasa (ml/min) para estimar autonomía</span>
         </div>
       </div>
-      <DataTable :columns="dosisCols" :rows="planta.dosificaciones" :loading="planta.loading" empty-text="Sin dosificaciones registradas.">
+      <DataTable
+        :columns="dosisCols" :rows="planta.dosificaciones" :loading="planta.loading"
+        :total="planta.dosificacionesTotal" :page="pageDosis" :page-size="20"
+        :sort-by="ordenDosis" :sort-dir="dirDosis"
+        empty-text="Sin dosificaciones registradas."
+        @update:page="irPaginaDosis"
+        @update:sort="ordenarDosis"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'insumo'">{{ prodMap[row.elemento_id] || row.elemento_id }}</span>
+          <span v-if="col.key === 'insumo'">{{ row.elemento_nombre || prodMap[row.elemento_id] || row.elemento_id }}</span>
           <span v-else-if="col.key === 'tasa'">{{ row.tasa != null ? `${fmtNum(row.tasa)} ${row.unidad_tasa || 'ml/min'}` : '—' }}</span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
@@ -580,7 +619,7 @@ watch(tab, (t) => {
       <div class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('dosificaciones', dosisFiltro)">Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('dosificaciones', dosisFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -594,9 +633,16 @@ watch(tab, (t) => {
         <div class="field"><label>Hasta</label><BaseInput v-model="actFiltro.fecha_fin" type="date" /></div>
       </div>
       <div class="toolbar"><button class="btn btn-primary" @click="openNewAct"><AppIcon name="plus" />Registrar actividad</button></div>
-      <DataTable :columns="actCols" :rows="planta.actividades" :loading="planta.loading" empty-text="Sin actividades registradas.">
+      <DataTable
+        :columns="actCols" :rows="planta.actividades" :loading="planta.loading"
+        :total="planta.actividadesTotal" :page="pageAct" :page-size="20"
+        :sort-by="ordenAct" :sort-dir="dirAct"
+        empty-text="Sin actividades registradas."
+        @update:page="irPaginaAct"
+        @update:sort="ordenarAct"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-if="col.key === 'responsable'">{{ row.responsable_nombre || '—' }}</span>
           <span v-else-if="col.key === 'estado'"><span class="badge" :class="row.estado === 'activo' ? 'badge-ok' : 'badge-muted'">{{ row.estado }}</span></span>
           <span v-else-if="col.key === 'tipo'" style="text-transform:capitalize">{{ row.tipo }}</span>
           <span v-else-if="col.key === 'foto'">
@@ -611,7 +657,7 @@ watch(tab, (t) => {
       <div class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('actividades', actFiltro)">Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('actividades', actFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 
@@ -625,11 +671,18 @@ watch(tab, (t) => {
 
       <GraficoHoras ref="graficoHorasRef" @click-dia="filtrarTablaPorDia" />
 
-      <DataTable :columns="horaCols" :rows="planta.horas" :loading="planta.loading" empty-text="Sin horas de servicio registradas." />
+      <DataTable
+        :columns="horaCols" :rows="planta.horas" :loading="planta.loading"
+        :total="planta.horasTotal" :page="pageHora" :page-size="20"
+        :sort-by="ordenHora" :sort-dir="dirHora"
+        empty-text="Sin horas de servicio registradas."
+        @update:page="irPaginaHora"
+        @update:sort="ordenarHora"
+      />
       <div class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
-        <button class="btn btn-ghost" @click="generarReporte('horas', horaFiltro)">Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('horas', horaFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
 

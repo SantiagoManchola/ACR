@@ -12,6 +12,7 @@ import BaseInput from '../components/BaseInput.vue'
 import client, { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 import { debounce } from '../utils/debounce'
+import { useBusy } from '../utils/async'
 
 const inv = useInventarioStore()
 const auth = useAuthStore()
@@ -48,6 +49,10 @@ const movError = ref('')
 const catError = ref('')
 const ubiError = ref('')
 const saving = ref(false)
+/* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
+const { busy: repBusy, run: repRun } = useBusy()
+const { busy: refrescando, run: refRun } = useBusy()
+const { busy: accionBusy, run: accionRun } = useBusy()
 
 /* Reportes */
 const formatoReporte = ref('csv')
@@ -69,6 +74,13 @@ async function generarReporte(tipo) {
 
 /* Filtros de elementos */
 const filtros = ref({ nombre: '', categoria_id: '', ubicacion_id: '' })
+/* Página y orden de cada tabla (paginación y orden server-side) */
+const pageElem = ref(1)
+const pageMov = ref(1)
+const pageTras = ref(1)
+const ordenElem = ref(''); const dirElem = ref('asc')
+const ordenMov = ref(''); const dirMov = ref('desc')
+const ordenTras = ref(''); const dirTras = ref('desc')
 function aplicarFiltros() {
   const f = {}
   if (filtros.value.nombre) f.nombre = filtros.value.nombre
@@ -76,7 +88,7 @@ function aplicarFiltros() {
   if (filtros.value.ubicacion_id) f.ubicacion_id = filtros.value.ubicacion_id
   return f
 }
-function filtrar() { inv.loadElementos(aplicarFiltros()) }
+function filtrar() { inv.loadElementos(aplicarFiltros(), pageElem.value, ordenElem.value, dirElem.value) }
 
 /* Filtros de traslados */
 /* Filtros de traslados (fechas por defecto: hoy en Colombia) */
@@ -90,7 +102,7 @@ function aplicarFiltrosTras() {
   if (filtrosTras.value.fecha_fin) f.fecha_fin = filtrosTras.value.fecha_fin
   return f
 }
-function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras()) }
+function filtrarTras() { inv.loadTraslados(aplicarFiltrosTras(), pageTras.value, ordenTras.value, dirTras.value) }
 
 /* Filtros de movimientos (fechas por defecto: hoy en Colombia) */
 const filtrosMov = ref({ elemento_id: '', ubicacion_id: '', tipo: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
@@ -103,12 +115,18 @@ function aplicarFiltrosMov() {
   if (filtrosMov.value.fecha_fin) f.fecha_fin = filtrosMov.value.fecha_fin
   return f
 }
-function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov()) }
+function filtrarMov() { inv.loadMovimientos(aplicarFiltrosMov(), pageMov.value, ordenMov.value, dirMov.value) }
 
-/* Auto-búsqueda con debounce al cambiar cualquier filtro */
-watch(filtros, debounce(() => filtrar(), 350), { deep: true })
-watch(filtrosTras, debounce(() => filtrarTras(), 350), { deep: true })
-watch(filtrosMov, debounce(() => filtrarMov(), 350), { deep: true })
+/* Auto-búsqueda con debounce al cambiar cualquier filtro (vuelve a la página 1) */
+watch(filtros, debounce(() => { pageElem.value = 1; filtrar() }, 350), { deep: true })
+watch(filtrosTras, debounce(() => { pageTras.value = 1; filtrarTras() }, 350), { deep: true })
+watch(filtrosMov, debounce(() => { pageMov.value = 1; filtrarMov() }, 350), { deep: true })
+function irPaginaElem(p) { pageElem.value = p; filtrar() }
+function irPaginaTras(p) { pageTras.value = p; inv.loadTraslados(aplicarFiltrosTras(), p, ordenTras.value, dirTras.value) }
+function irPaginaMov(p) { pageMov.value = p; inv.loadMovimientos(aplicarFiltrosMov(), p, ordenMov.value, dirMov.value) }
+function ordenarElem({ key, dir }) { ordenElem.value = key; dirElem.value = dir; pageElem.value = 1; filtrar() }
+function ordenarMov({ key, dir }) { ordenMov.value = key; dirMov.value = dir; pageMov.value = 1; inv.loadMovimientos(aplicarFiltrosMov(), 1, key, dir) }
+function ordenarTras({ key, dir }) { ordenTras.value = key; dirTras.value = dir; pageTras.value = 1; inv.loadTraslados(aplicarFiltrosTras(), 1, key, dir) }
 
 const movTipoOptions = [
   { value: 'entrada', label: 'Entrada' },
@@ -126,7 +144,9 @@ const catOptions = computed(() => inv.categorias.map((c) => ({ value: c.id, labe
 const ubiOptions = computed(() => inv.ubicaciones.map((u) => ({ value: u.id, label: u.nombre })))
 const ubicMap = computed(() => Object.fromEntries(inv.ubicaciones.map((u) => [u.id, u.nombre])))
 const catMap = computed(() => Object.fromEntries(inv.categorias.map((c) => [c.id, c.nombre])))
-const elementoOptions = computed(() => inv.elementos.map((e) => {
+/* Catálogo ligero para selects/mapeos (no depende de la página de la tabla) */
+const opcionesMap = computed(() => Object.fromEntries(inv.opciones.map((e) => [e.id, e])))
+const elementoOptions = computed(() => inv.opciones.map((e) => {
   const stock = e.stock && e.stock.length
     ? e.stock.map((s) => `${ubicMap.value[s.ubicacion_id] || '—'}: ${fmtNum(s.cantidad)}`).join(', ')
     : 'sin stock'
@@ -175,7 +195,7 @@ async function saveUbi() {
 const resumenUbi = computed(() => {
   const map = {}
   for (const u of inv.ubicaciones) map[u.id] = { nombre: u.nombre, productos: 0, unidades: 0 }
-  for (const e of inv.elementos) {
+  for (const e of inv.opciones) {
     for (const s of (e.stock || [])) {
       if (map[s.ubicacion_id]) {
         map[s.ubicacion_id].productos += 1
@@ -197,19 +217,26 @@ function askDelElem(r) {
 }
 async function doDelElem() {
   const r = pendingDel.value
-  confirmShow.value = false
   if (!r) return
-  await inv.deleteElemento(r.id)
-  await inv.loadElementos()
-  pendingDel.value = null
+  await accionRun(async () => {
+    await inv.deleteElemento(r.id)
+    await Promise.all([inv.loadElementos(aplicarFiltros(), pageElem.value), inv.loadOpciones()])
+    confirmShow.value = false
+    pendingDel.value = null
+  })
 }
 async function reactivarElem(r) {
-  await inv.updateElemento(r.id, { estado: 'activo' })
-  await inv.loadElementos()
+  await accionRun(async () => {
+    await inv.updateElemento(r.id, { estado: 'activo' })
+    await Promise.all([inv.loadElementos(aplicarFiltros(), pageElem.value), inv.loadOpciones()])
+  })
 }
 
 function refreshInv() {
-  return Promise.all([inv.loadCategorias(), inv.loadUbicaciones(), inv.loadElementos(), inv.loadMovimientos(), inv.loadAlertas(), inv.loadTraslados()])
+  return Promise.all([
+    inv.loadCategorias(), inv.loadUbicaciones(), inv.loadOpciones(),
+    filtrar(), filtrarTras(), filtrarMov(), inv.loadAlertas(),
+  ])
 }
 
 const emptyForm = () => ({
@@ -223,14 +250,16 @@ const elementosCols = [
   { key: 'nombre', label: 'Elemento', cardTitle: true },
   { key: 'categoria', label: 'Categoría', sortValue: (r) => catMap.value[r.categoria_id] || '' },
   { key: 'ubicaciones', label: 'Ubicaciones', sortable: false, wide: true },
-  { key: 'cantidad', label: 'Cant. total', align: 'right', num: true },
+  /* La cantidad total se calcula en la API con todos los stocks: no es
+     ordenable server-side (se muestra sin orden) */
+  { key: 'cantidad', label: 'Cant. total', align: 'right', num: true, sortable: false },
   { key: 'unidad', label: 'Unidad' },
   { key: 'minimo', label: 'Mín.', align: 'right' },
 ]
 const movCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Elemento', cardTitle: true, sortValue: (r) => inv.elementos.find((e) => e.id === r.elemento_id)?.nombre || '' },
+  { key: 'elemento', label: 'Elemento', cardTitle: true, sortValue: (r) => opcionesMap.value[r.elemento_id]?.nombre || '' },
   { key: 'ubicacion', label: 'Ubicación' },
   { key: 'tipo', label: 'Tipo' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
@@ -286,7 +315,7 @@ async function saveElemento() {
     if (editing.value) await inv.updateElemento(editing.value.id, payload)
     else await inv.createElemento(payload)
     showForm.value = false
-    await inv.loadElementos()
+    await Promise.all([inv.loadElementos(aplicarFiltros(), pageElem.value), inv.loadOpciones()])
   } catch (e) { formError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -304,7 +333,12 @@ async function saveMov() {
       fecha: movForm.value.fecha,
     })
     showMov.value = false
-    await Promise.all([inv.loadElementos(), inv.loadMovimientos(), inv.loadAlertas()])
+    await Promise.all([
+      inv.loadElementos(aplicarFiltros(), pageElem.value),
+      inv.loadOpciones(),
+      inv.loadMovimientos(aplicarFiltrosMov(), pageMov.value),
+      inv.loadAlertas(),
+    ])
   } catch (e) { movError.value = apiError(e) } finally { saving.value = false }
 }
 
@@ -319,7 +353,7 @@ function openNewTras() {
   trasError.value = ''; showTras.value = true
 }
 const trasUbicOrigenOptions = computed(() => {
-  const e = inv.elementos.find((x) => x.id === trasForm.value.elemento_id)
+  const e = opcionesMap.value[trasForm.value.elemento_id]
   if (!e || !e.stock) return []
   return e.stock.map((s) => ({ value: s.ubicacion_id, label: `${ubicMap.value[s.ubicacion_id] || '—'} (${fmtNum(s.cantidad)})` }))
 })
@@ -341,29 +375,32 @@ async function saveTras() {
       fecha: trasForm.value.fecha,
     })
     showTras.value = false
-    await Promise.all([inv.loadElementos(), inv.loadTraslados()])
+    await Promise.all([
+      inv.loadElementos(aplicarFiltros(), pageElem.value),
+      inv.loadOpciones(),
+      inv.loadTraslados(aplicarFiltrosTras(), pageTras.value),
+    ])
   } catch (e) { trasError.value = apiError(e) } finally { saving.value = false }
 }
 
 const trasladoCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora' },
-  { key: 'elemento', label: 'Producto', cardTitle: true, sortValue: (r) => elemMap.value[r.elemento_id]?.nombre || '' },
+  { key: 'elemento', label: 'Producto', cardTitle: true, sortValue: (r) => r.elemento_nombre || opcionesMap.value[r.elemento_id]?.nombre || '' },
   { key: 'origen', label: 'Origen' },
   { key: 'destino', label: 'Destino' },
   { key: 'cantidad', label: 'Cantidad', align: 'right', num: true },
-  { key: 'responsable', label: 'Responsable', sortValue: (r) => userMap.value[r.responsable_id] || '' },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => r.responsable_nombre || '' },
 ]
-const userMap = computed(() => Object.fromEntries((auth.usuarios || []).map((u) => [u.id, u.nombre])))
-const elemMap = computed(() => Object.fromEntries(inv.elementos.map((e) => [e.id, e])))
+const elemMap = opcionesMap
 
 /* Quitar el producto de una ubicación cuando su stock quedó en 0 */
 async function removeStock(s) {
   if (!confirm(`¿Quitar "${editing.value?.nombre}" de la ubicación "${ubicMap.value[s.ubicacion_id] || '—'}"?`)) return
   try {
     await inv.deleteStock(s.id)
-    await inv.loadElementos()
-    const actualizado = inv.elementos.find((e) => e.id === s.elemento_id)
+    await inv.loadOpciones()
+    const actualizado = await inv.loadElemento(s.elemento_id)
     if (actualizado) editing.value = actualizado
   } catch (e) {
     alert(apiError(e))
@@ -375,8 +412,9 @@ function badgeTone(tipo) { return tipo === 'entrada' ? 'badge-ok' : 'badge-warn'
 onMounted(async () => {
   await inv.loadCategorias()
   await inv.loadUbicaciones()
+  await inv.loadOpciones()
   if (esAdministrativo.value) forzarOficina()
-  await inv.loadElementos(aplicarFiltros())
+  await inv.loadElementos(aplicarFiltros(), pageElem.value)
   await inv.loadAlertas()
   filtrarMov()
   filtrarTras()
@@ -385,7 +423,7 @@ onMounted(async () => {
 watch(() => tab.value, (t) => {
   if (t === 'ubicaciones') inv.loadUbicaciones()
   if (t === 'categorias') inv.loadCategorias()
-  if (t === 'elementos') inv.loadElementos(aplicarFiltros())
+  if (t === 'elementos') inv.loadElementos(aplicarFiltros(), pageElem.value)
   if (t === 'alertas') inv.loadAlertas()
   if (t === 'traslados') filtrarTras()
   if (t === 'movimientos') filtrarMov()
@@ -428,9 +466,16 @@ watch(() => tab.value, (t) => {
       </div>
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNew"><AppIcon name="plus" />Nuevo elemento</button>
-        <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refRun(refreshInv)"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
-      <DataTable :columns="elementosCols" :rows="inv.elementos" :loading="inv.loading" empty-text="No hay elementos registrados.">
+      <DataTable
+        :columns="elementosCols" :rows="inv.elementos" :loading="inv.loading"
+        :total="inv.elementosTotal" :page="pageElem" :page-size="20"
+        :sort-by="ordenElem" :sort-dir="dirElem"
+        empty-text="No hay elementos registrados."
+        @update:page="irPaginaElem"
+        @update:sort="ordenarElem"
+      >
         <template #cell="{ row, col }">
           <span v-if="col.key === 'categoria'">{{ catMap[row.categoria_id] || '—' }}</span>
           <span v-else-if="col.key === 'ubicaciones'">
@@ -450,12 +495,12 @@ watch(() => tab.value, (t) => {
           <button class="btn btn-ghost btn-sm" @click="openMov(row, 'entrada')" title="Entrada"><AppIcon name="plus" :size="16" /></button>
           <button class="btn btn-ghost btn-sm" @click="openMov(row, 'salida')" title="Salida"><AppIcon name="minus" :size="16" /></button>
           <button v-if="row.estado === 'activo'" class="btn btn-ghost btn-sm" @click="askDelElem(row)" title="Inactivar"><AppIcon name="trash" :size="16" /></button>
-          <button v-else class="btn btn-ghost btn-sm" @click="reactivarElem(row)" title="Activar"><AppIcon name="refresh" :size="16" /></button>
+          <button v-else class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="accionRun(() => reactivarElem(row))" title="Activar"><AppIcon name="refresh" :size="16" /></button>
         </template>
       </DataTable>
       <div class="report-bar">
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:140px" />
-        <button class="btn btn-ghost" @click="generarReporte('elementos')"><AppIcon name="download" />Generar reporte</button>
+        <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('elementos'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
       <BaseAlert v-if="repError" type="bad" class="mt-1">{{ repError }}</BaseAlert>
     </div>
@@ -464,7 +509,7 @@ watch(() => tab.value, (t) => {
     <div v-else-if="tab === 'categorias'" class="tab-panel">
       <div class="toolbar">
         <button class="btn btn-primary" @click="openNewCat"><AppIcon name="plus" />Nueva categoría</button>
-        <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refRun(refreshInv)"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
       <DataTable :columns="catCols" :rows="inv.categorias" :loading="inv.loading" empty-text="Sin categorías registradas.">
         <template #cell="{ row, col }">
@@ -478,7 +523,7 @@ watch(() => tab.value, (t) => {
     <div v-else-if="tab === 'ubicaciones'" class="tab-panel">
       <div class="toolbar">
         <button v-if="esAdmin" class="btn btn-primary" @click="openNewUbi"><AppIcon name="plus" />Nueva ubicación</button>
-        <button class="btn btn-ghost" @click="refreshInv"><AppIcon name="refresh" />Refrescar</button>
+        <button class="btn btn-ghost" :disabled="refrescando" @click="refRun(refreshInv)"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
       </div>
       <div class="resumen-ubi" v-if="resumenUbi.length">
         <div class="resumen-card" v-for="r in resumenUbi" :key="r.nombre">
@@ -522,12 +567,19 @@ watch(() => tab.value, (t) => {
           <BaseInput v-model="filtrosTras.fecha_fin" type="date" />
         </div>
       </div>
-      <DataTable :columns="trasladoCols" :rows="inv.traslados" :loading="inv.loading" empty-text="Sin traslados registrados.">
+      <DataTable
+        :columns="trasladoCols" :rows="inv.traslados" :loading="inv.loading"
+        :total="inv.trasladosTotal" :page="pageTras" :page-size="20"
+        :sort-by="ordenTras" :sort-dir="dirTras"
+        empty-text="Sin traslados registrados."
+        @update:page="irPaginaTras"
+        @update:sort="ordenarTras"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'elemento'">{{ elemMap[row.elemento_id]?.nombre || row.elemento_id }}</span>
+          <span v-if="col.key === 'elemento'">{{ row.elemento_nombre || elemMap[row.elemento_id]?.nombre || row.elemento_id }}</span>
           <span v-else-if="col.key === 'origen'">{{ row.ubicacion_origen || '—' }}</span>
           <span v-else-if="col.key === 'destino'">{{ row.ubicacion_destino || '—' }}</span>
-          <span v-else-if="col.key === 'responsable'">{{ userMap[row.responsable_id] || '—' }}</span>
+          <span v-else-if="col.key === 'responsable'">{{ row.responsable_nombre || '—' }}</span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
@@ -558,9 +610,16 @@ watch(() => tab.value, (t) => {
           <BaseInput v-model="filtrosMov.fecha_fin" type="date" />
         </div>
       </div>
-      <DataTable :columns="movCols" :rows="inv.movimientos" :loading="inv.loading" empty-text="Sin movimientos registrados.">
+      <DataTable
+        :columns="movCols" :rows="inv.movimientos" :loading="inv.loading"
+        :total="inv.movimientosTotal" :page="pageMov" :page-size="20"
+        :sort-by="ordenMov" :sort-dir="dirMov"
+        empty-text="Sin movimientos registrados."
+        @update:page="irPaginaMov"
+        @update:sort="ordenarMov"
+      >
         <template #cell="{ row, col }">
-          <span v-if="col.key === 'elemento'">{{ inv.elementos.find((e) => e.id === row.elemento_id)?.nombre || row.elemento_id }}</span>
+          <span v-if="col.key === 'elemento'">{{ row.elemento_nombre || opcionesMap.value[row.elemento_id]?.nombre || row.elemento_id }}</span>
           <span v-else-if="col.key === 'ubicacion'">{{ row.ubicacion || '—' }}</span>
           <span v-else-if="col.key === 'tipo'"><span class="badge" :class="badgeTone(row.tipo)">{{ row.tipo }}</span></span>
           <span v-else-if="col.num">{{ fmtNum(row[col.key]) }}</span>
@@ -730,7 +789,7 @@ watch(() => tab.value, (t) => {
       </template>
     </BaseModal>
 
-    <ConfirmModal v-model:show="confirmShow" title="Inactivar elemento" :message="confirmMsg" confirm-text="Sí, inactivar" danger @confirm="doDelElem" />
+    <ConfirmModal v-model:show="confirmShow" title="Inactivar elemento" :message="confirmMsg" confirm-text="Sí, inactivar" danger :loading="accionBusy" @confirm="doDelElem" />
   </div>
 </template>
 

@@ -171,7 +171,12 @@ defineExpose({ recargar })
       </div>
     </div>
     <p class="muted chart-sub">Total: <strong>{{ fmtNum(totalVista) }} h</strong> · Promedio: <strong>{{ fmtNum(promVista) }} h</strong> · Escala 0–{{ fmtNum(escalaMax) }} h · Clic en una barra para {{ vistaHora === 'anual' ? 'ver sus semanas' : vistaHora === 'mes' ? 'ver sus días' : textoAccionDia.toLowerCase() }}</p>
-    <div v-if="graficoCargando" class="muted">Cargando gráfico…</div>
+    <div v-if="graficoCargando" class="chart-skeleton" role="status" aria-live="polite" aria-label="Cargando gráfico">
+      <p class="skeleton-status"><span class="spinner" aria-hidden="true"></span>Cargando gráfico…</p>
+      <div class="chart-skeleton-bars" aria-hidden="true">
+        <div v-for="n in 8" :key="'hsk' + n" class="skeleton-line" :style="{ height: `${18 + (n % 4) * 18}%` }"></div>
+      </div>
+    </div>
     <div v-else-if="!barrasHora.length" class="muted">Sin datos para graficar.</div>
     <div v-else class="chart-plot">
       <div class="chart-y">
@@ -205,6 +210,17 @@ defineExpose({ recargar })
 </template>
 
 <style scoped>
+/* Skeleton de carga del gráfico */
+.chart-skeleton { padding: .8rem 0; }
+.skeleton-status { display: flex; align-items: center; gap: .6rem; color: var(--acr-azul); font-size: .85rem; margin: 0 0 .6rem; }
+.skeleton-status .spinner { width: 18px; height: 18px; margin: 0; border-width: 2px; }
+.chart-skeleton-bars { display: flex; align-items: flex-end; gap: .5rem; height: 210px; border-bottom: 2px solid var(--acr-borde); padding: 0 .4rem; }
+.chart-skeleton-bars .skeleton-line { flex: 1; min-width: 44px; border-radius: 7px 7px 0 0; background: var(--acr-gris, #EAF1FB); animation: skeleton-pulse 1.4s ease-in-out infinite; }
+@keyframes skeleton-pulse { 50% { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) {
+  .chart-skeleton-bars .skeleton-line, .skeleton-status .spinner { animation: none; }
+}
+
 /* Gráfico de horas de servicio: parece un gráfico real (ejes, fondo, leyenda) */
 .chart-wrap {
   background: linear-gradient(180deg, var(--acr-azul-50) 0%, #fff 30%);

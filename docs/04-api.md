@@ -101,6 +101,29 @@ uvicorn app.main:app --reload
 - Soft delete (estado) en suscriptores/medidores/elementos.
 - Todo write inyecta `usuario_actual` → `created_by`/`updated_by`.
 
+## Rendimiento: paginación y dashboard ligero
+
+Los listados con vista en tabla son **paginados server-side** (LIMIT/OFFSET +
+COUNT con los mismos filtros) para no devolver miles de filas por petición:
+`/suscriptores`, `/micromedidores`, `/lecturas`, `/inventario`,
+`/inventario/movimientos`, `/inventario/traslados`, `/planta/mediciones`,
+`/planta/actividades`, `/planta/dosificaciones`, `/planta/horas-servicio` (con
+`page`; sin `page` devuelve la lista completa para el gráfico anual) y
+`/usuarios`. Parámetros: `page` (≥1) y `page_size` (≤100, por defecto 20).
+Respuesta estándar: `{ items, total, page, page_size, pages }`.
+
+Para los selects/filtros existen listas ligeras sin paginar:
+`/suscriptores/opciones`, `/micromedidores/opciones`, `/inventario/opciones`
+y `/usuarios/opciones` (id/nombre/estado y, en inventario, stock resumido).
+
+`GET /dashboard/resumen?dias_consumo=60` calcula en UNA petición (agregados
+SQL, sin traer listas) todos los KPIs y tops del dashboard, recortados por
+rol: inventario (elementos/alertas, alcance Oficina para el administrativo),
+químicos en planta (total, bajos, top 6), micromedidores (suscriptores,
+medidores, frenados top-5 y consumo agregado + top-8 por medidor con nombre
+de suscriptor) y planta (fuera de rango). El CMS ya no consulta listas
+completas para pintar el dashboard.
+
 ## Criterio de aceptación
 - [ ] Login + JWT funciona; rutas protegidas devuelven 401 sin token.
 - [ ] Permisos por rol aplicados (p. ej. planta solo para operario/admin).

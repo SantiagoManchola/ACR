@@ -302,6 +302,17 @@ table.table { width: 100%; border-collapse: collapse; font-size: .88rem; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Spinner dentro de botones: peticiones en curso (generar reporte, refrescar…) */
+.btn .spinner {
+  width: 14px; height: 14px; border: 2px solid var(--acr-azul-50);
+  border-top-color: var(--acr-azul); border-radius: 50%;
+  animation: spin .7s linear infinite; flex: none; margin: 0; display: inline-block;
+}
+.btn-primary .spinner, .btn-danger .spinner, .btn-dark .spinner {
+  border-color: rgba(255, 255, 255, .35); border-top-color: #fff;
+}
+.btn:disabled { opacity: .65; cursor: not-allowed; }
+
 /* ----------------------------- KPI tiles ----------------------------- */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-bottom: 1.2rem; }
 .kpi { background: #fff; border: 1px solid var(--acr-borde); border-radius: var(--acr-radio); padding: 1rem 1.1rem; box-shadow: var(--acr-sombra-sm); }
