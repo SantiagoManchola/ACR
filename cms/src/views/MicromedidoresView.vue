@@ -319,6 +319,35 @@ const emptyLec = () => ({ micromedidor_id: null, suscriptor_id: null, lectura: '
 const lecForm = ref(emptyLec())
 const fotoLecRef = ref(null)
 
+/* Adjuntar/actualizar la evidencia de una lectura YA registrada (solo admin).
+   Reutiliza FotoEvidencia (comprime -> presign -> PUT -> confirmar) y el
+   endpoint PATCH /lecturas/{id} que solo toca foto_url. */
+const showFoto = ref(false)
+const fotoRow = ref(null)
+const fotoForm = ref({ foto_url: '' })
+const fotoEditRef = ref(null)
+const fotoError = ref('')
+const { busy: fotoBusy, run: fotoRun } = useBusy()
+function abrirFotoLec(r) {
+  fotoRow.value = r
+  fotoForm.value = { foto_url: r.foto_url || '' }
+  fotoError.value = ''
+  showFoto.value = true
+}
+async function guardarFotoLec() {
+  fotoError.value = ''
+  if (fotoEditRef.value?.ocupado()) { fotoError.value = 'Espera a que termine de subir la foto.'; return }
+  await fotoRun(async () => {
+    try {
+      await mm.updateLecturaFoto(fotoRow.value.id, fotoForm.value.foto_url)
+      showFoto.value = false
+      await mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value, ordenLec.value, dirLec.value)
+    } catch (e) {
+      fotoError.value = apiError(e)
+    }
+  })
+}
+
 const lecCols = [
   { key: 'fecha', label: 'Fecha' },
   { key: 'hora', label: 'Hora', hideOnCard: true },
@@ -688,6 +717,9 @@ onMounted(() => {
           </span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
+        <template v-if="esAdmin" #row-actions="{ row }">
+          <button class="btn btn-ghost btn-sm" :disabled="fotoBusy" @click="abrirFotoLec(row)" title="Adjuntar / cambiar foto de la lectura"><AppIcon name="camera" :size="16" /></button>
+        </template>
       </DataTable>
       <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de lecturas:</span>
@@ -808,6 +840,26 @@ onMounted(() => {
       <template #footer>
         <button class="btn btn-ghost" @click="showLec = false">Cancelar</button>
         <button class="btn btn-primary" :disabled="saving" @click="saveLec">{{ saving ? 'Guardando…' : 'Guardar lectura' }}</button>
+      </template>
+    </BaseModal>
+
+    <!-- MODAL FOTO DE LECTURA EXISTENTE (solo admin) -->
+    <BaseModal v-model="showFoto" title="Evidencia de la lectura" size="480">
+      <BaseAlert v-if="fotoError" type="bad" class="mb-1">{{ fotoError }}</BaseAlert>
+      <div v-if="fotoRow" class="form-row" style="margin-bottom:.9rem">
+        <div class="field" style="grid-column:span 2"><label>Suscriptor</label><input class="input" :value="fotoRow.suscriptor_nombre || '—'" disabled /></div>
+        <div class="field"><label>Medidor</label><input class="input" :value="fotoRow.medidor_serial || fotoRow.micromedidor_id" disabled /></div>
+        <div class="field"><label>Fecha</label><input class="input" :value="fotoRow.fecha" disabled /></div>
+        <div class="field"><label>Lectura (m³)</label><input class="input" :value="fmtNum(fotoRow.lectura)" disabled /></div>
+        <div class="field"><label>Consumo (m³)</label><input class="input" :value="fmtNum(fotoRow.consumo)" disabled /></div>
+      </div>
+      <p class="hint" style="margin-top:0">Solo se agrega o cambia la evidencia fotográfica; los datos de medición no se modifican.</p>
+      <FotoEvidencia ref="fotoEditRef" v-model="fotoForm.foto_url" modulo="lectura" label="Foto de evidencia" />
+      <template #footer>
+        <button class="btn btn-ghost" :disabled="fotoBusy" @click="showFoto = false">Cancelar</button>
+        <button class="btn btn-primary" :disabled="fotoBusy || fotoEditRef?.ocupado()" @click="guardarFotoLec">
+          <span v-if="fotoBusy" class="spinner"></span>{{ fotoBusy ? 'Guardando…' : 'Guardar foto' }}
+        </button>
       </template>
     </BaseModal>
 

@@ -104,6 +104,11 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
       } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createLectura(p) { const { data } = await client.post('/lecturas', p); return data },
+    // Adjuntar/reemplazar/quitar la evidencia de una lectura ya tomada (solo admin)
+    async updateLecturaFoto(id, fotoUrl) {
+      const { data } = await client.patch(`/lecturas/${id}`, { foto_url: fotoUrl || null })
+      return data
+    },
 
     async loadConsumoPorSector(sector) {
       this.cargas++
