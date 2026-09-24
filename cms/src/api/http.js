@@ -47,9 +47,15 @@ export function setupHttp(router, pinia) {
       const cfg = error.config || {}
       const url = String(cfg.url || '')
       const esAuthUrl = url.includes('/auth/login') || url.includes('/auth/refresh')
-      // 401 en petición normal: intentar refresh una sola vez y reintentar.
-      if (error.response && error.response.status === 401 && !cfg.__reintento && !esAuthUrl) {
-        return reintentarConRefresh(cfg, error)
+      if (error.response && error.response.status === 401 && !esAuthUrl) {
+        // 401 en petición normal: intentar refresh una sola vez y reintentar.
+        if (!cfg.__reintento) {
+          return reintentarConRefresh(cfg, error)
+        }
+        /* Ya se probó el refresh: el par de tokens está definitivamente muerto.
+           Sin este cierre, la app quedaba viva con un token inválido y las
+           vistas se quedaban sin datos (pantalla en blanco / tablas vacías). */
+        cerrarSesionPorExpiracion()
       }
       return Promise.reject(error)
     }
@@ -68,6 +74,7 @@ async function reintentarConRefresh(cfg, error) {
     refrescoEnCurso = null
     setToken(data.access_token)
     setRefreshToken(data.refresh_token)
+    sincronizarTokenStore(data.access_token)
     cfg.__reintento = true
     cfg.headers = { ...(cfg.headers || {}), Authorization: `Bearer ${data.access_token}` }
     return client(cfg)
@@ -76,6 +83,17 @@ async function reintentarConRefresh(cfg, error) {
     cerrarSesionPorExpiracion()
     return Promise.reject(error)
   }
+}
+
+/* El refresh vive fuera del store (interceptor), así que el token nuevo del
+   store de Pinia queda desactualizado si solo se escribe en localStorage.
+   Esto mantiene a Pinia sincronizado para que el router y el layout decidan
+   con el token real y no con uno vencido que ya fue renovado. */
+async function sincronizarTokenStore(nuevoToken) {
+  try {
+    const { useAuthStore } = await import('../stores/auth')
+    if (piniaRef) useAuthStore(piniaRef).token = nuevoToken
+  } catch { /* noop */ }
 }
 
 /* Token (o refresh) inválido: limpiar TODO y volver al login con mensaje claro.
@@ -92,7 +110,7 @@ async function cerrarSesionPorExpiracion() {
     }
   } catch { /* noop */ }
   if (routerRef && routerRef.currentRoute.value.name !== 'login') {
-    routerRef.replace({ name: 'login', query: { sesion: 'expirada' } })
+    routerRef.replace({ name: 'login', query: { sesion: 'expirada' } }).catch(() => {})
   }
 }
 

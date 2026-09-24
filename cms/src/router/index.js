@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { getToken } from '../api/http'
 
 // Acceso por rol (regla de negocio 12): planta restringida a operario/admin
 // (el administrativo NO tiene acceso al módulo de planta).
@@ -47,6 +48,16 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  /* Red de seguridad: cualquier error inesperado en el guard no debe dejar la
+     navegación colgada (pantalla en blanco); se cae siempre al login. */
+  try {
+    return await resolverAcceso(to)
+  } catch (e) {
+    return { name: 'login', query: { sesion: 'expirada' } }
+  }
+})
+
+async function resolverAcceso(to) {
   const auth = useAuthStore()
   if (to.meta.public) {
     // Con token en memoria hay que validarlo: si está muerto (expiró y el
@@ -60,7 +71,15 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAuth) {
     if (!auth.isAuthenticated) return { name: 'login' }
     if (!auth.user) {
-      try { await auth.fetchMe() } catch { return { name: 'login' } }
+      try {
+        await auth.fetchMe()
+      } catch {
+        /* Token muerto: el interceptor ya limpió la sesión. Se consulta el
+           storage directo (el store puede tardar un tick en sincronizarse).
+           Con el token aún presente el fallo es de red/servidor, no de sesión. */
+        if (getToken()) return { name: 'login' }
+        return { name: 'login', query: { sesion: 'expirada' } }
+      }
     }
     const allowed = to.meta.roles || MODULOS[to.name]?.roles
     if (allowed && auth.rol && !allowed.includes(auth.rol)) {
@@ -68,6 +87,6 @@ router.beforeEach(async (to) => {
     }
   }
   return true
-})
+}
 
 export default router
