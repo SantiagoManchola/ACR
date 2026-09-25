@@ -149,12 +149,28 @@ function ordenarLec({ key, dir }) { ordenLec.value = key; dirLec.value = dir; pa
 
 /* ---------------- Reportes ---------------- */
 const formatoReporte = ref('csv')
+/* Orden del reporte de micromedidores: por defecto por suscriptor (así los
+   medidores de un mismo suscriptor quedan agrupados en la impresión). */
+const repOrdenMm = ref('suscriptor')
+const repDirMm = ref('desc')
+const repOrdenOptions = [
+  { value: 'suscriptor', label: 'Suscriptor' },
+  { value: 'serial', label: 'Serial' },
+]
+const repDirOptions = [
+  { value: 'desc', label: 'Descendente' },
+  { value: 'asc', label: 'Ascendente' },
+]
 const repError = ref('')
 async function generarReporte(tipo) {
   repError.value = ''
   const params = { tipo, formato: formatoReporte.value }
   if (tipo === 'suscriptores') Object.assign(params, soloNoVacios(filtrosSus.value))
-  else if (tipo === 'micromedidores') Object.assign(params, soloNoVacios(filtrosMm.value))
+  else if (tipo === 'micromedidores') {
+    Object.assign(params, soloNoVacios(filtrosMm.value))
+    params.orden = repOrdenMm.value
+    params.dir_orden = repDirMm.value
+  }
   else if (tipo === 'lecturas') Object.assign(params, soloNoVacios(filtrosLec.value))
   try {
     await descargarReporte('/reportes/micromedidores', params, `reporte_${tipo}`)
@@ -680,6 +696,8 @@ onMounted(() => {
       </DataTable>
       <div v-if="!esFontanero" class="report-bar">
         <span class="muted">Reporte de micromedidores:</span>
+        <SearchableSelect v-model="repOrdenMm" :options="repOrdenOptions" placeholder="Ordenar por" style="width:auto;min-width:140px" />
+        <SearchableSelect v-model="repDirMm" :options="repDirOptions" placeholder="Dirección" style="width:auto;min-width:140px" />
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('micromedidores'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>

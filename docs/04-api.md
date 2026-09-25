@@ -92,8 +92,13 @@ uvicorn app.main:app --reload
 - **Planta:** CRUD `parametros_planta`, `POST /mediciones` (marca fuera_rango),
   `POST /dosificaciones`, `POST /actividades`, `POST /horas-servicio`,
   `GET /mediciones/fuera-rango`.
-- **Reportes:** `GET /reportes/inventario`, `/consumo`, `/planta` con filtros y
-  `?formato=csv|xlsx|pdf`.
+- **Reportes:** `GET /reportes/inventario`, `/reportes/micromedidores`
+  (`tipo=micromedidores` incluye la condición del medidor y acepta
+  `orden=suscriptor|serial` + `dir_orden=asc|desc` para agrupar por suscriptor
+  o imprimir por serial), `/reportes/planta` con filtros y `?formato=csv|xlsx|pdf`.
+- Detección de frenado: 3 lecturas iguales seguidas marcan `frenado`; al marcar
+  manualmente `bueno` se guarda un corte (`condicion_reset_lectura_id`) y se
+  requieren 3 lecturas nuevas iguales para volver a reportarlo.
 
 ## Lógica de negocio ACR (services/)
 - Cálculo de consumo = lectura_actual − lectura_anterior; si falta → promedio histórico.
