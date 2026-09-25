@@ -149,10 +149,10 @@ function ordenarLec({ key, dir }) { ordenLec.value = key; dirLec.value = dir; pa
 
 /* ---------------- Reportes ---------------- */
 const formatoReporte = ref('csv')
-/* Orden del reporte de micromedidores: por defecto por suscriptor (así los
-   medidores de un mismo suscriptor quedan agrupados en la impresión). */
+/* Orden del reporte de micromedidores: por defecto por suscriptor ascendente
+   (así los medidores de un mismo suscriptor quedan agrupados en la impresión). */
 const repOrdenMm = ref('suscriptor')
-const repDirMm = ref('desc')
+const repDirMm = ref('asc')
 const repOrdenOptions = [
   { value: 'suscriptor', label: 'Suscriptor' },
   { value: 'serial', label: 'Serial' },
