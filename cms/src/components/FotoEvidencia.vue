@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { apiError } from '../api/http'
 import { subirEvidencia } from '../api/evidencias'
-import { formatoKB } from '../utils/imagen'
 
 const props = defineProps({
   modelValue: { type: String, default: '' }, // URL pública en R2 (o '')
@@ -38,14 +37,13 @@ async function alElegir(e) {
   e.target.value = ''
   if (!file) return
   estado.value = 'subiendo'
-  mensaje.value = 'Comprimiendo imagen…'
+  mensaje.value = 'Preparando foto…'
   try {
-    const { public_url, stats } = await subirEvidencia(props.modulo, file, (paso) => { mensaje.value = paso })
+    const { public_url } = await subirEvidencia(props.modulo, file, (paso) => { mensaje.value = paso })
     vistaPrevia.value = public_url
     emit('update:modelValue', public_url)
     estado.value = 'listo'
-    const ahorro = stats.antes > 0 ? Math.round((1 - stats.despues / stats.antes) * 100) : 0
-    mensaje.value = `${formatoKB(stats.antes)} → ${formatoKB(stats.despues)} (ahorro ${ahorro}%)`
+    mensaje.value = 'Foto lista'
   } catch (err) {
     estado.value = 'error'
     mensaje.value = apiError(err, 'No se pudo subir la foto.')
@@ -80,7 +78,6 @@ defineExpose({ ocupado: () => subiendo.value, subiendo })
       <template v-else>
         <AppIcon name="camera" :size="22" />
         <span>Tomar o seleccionar foto</span>
-        <small class="muted">Se comprime sola antes de subirse (ahorra ~90% sin perder calidad)</small>
       </template>
     </div>
 
@@ -102,7 +99,6 @@ defineExpose({ ocupado: () => subiendo.value, subiendo })
     </div>
 
     <p v-if="mensaje && !subiendo" class="hint" :class="{ 'foto-err': estado === 'error' }">{{ mensaje }}</p>
-    <p v-else-if="!subiendo" class="hint">Opcional. Si R2 no está configurado, puede guardar el registro sin foto.</p>
   </div>
 </template>
 

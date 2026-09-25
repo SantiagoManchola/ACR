@@ -31,8 +31,10 @@ const filtered = computed(() => {
   const tokens = normalizar(query.value).trim().split(/\s+/).filter(Boolean)
   if (!tokens.length) return props.options
   return props.options.filter((o) => {
-    const label = normalizar(o.label)
-    return tokens.every((t) => label.includes(t))
+    // `search` permite encontrar la opción por datos que no se muestran
+    // (p. ej. serial o dirección) y `sub` es la línea secundaria visible.
+    const texto = normalizar([o.label, o.search, o.sub].filter(Boolean).join(' '))
+    return tokens.every((t) => texto.includes(t))
   })
 })
 
@@ -140,7 +142,10 @@ onBeforeUnmount(() => {
           class="ss-opt"
           :class="{ active: o.value === modelValue }"
           @mousedown.prevent="choose(o)"
-        >{{ o.label }}</button>
+        >
+          <span class="ss-opt-label">{{ o.label }}</span>
+          <small v-if="o.sub" class="ss-opt-sub">{{ o.sub }}</small>
+        </button>
         <p v-if="!filtered.length" class="ss-empty">Sin coincidencias.</p>
       </div>
     </teleport>
@@ -182,5 +187,7 @@ onBeforeUnmount(() => {
 }
 .ss-drop .ss-opt:hover { background: #EAF1FB; }
 .ss-drop .ss-opt.active { background: #EAF1FB; color: #1A4E8C; font-weight: 600; }
+.ss-drop .ss-opt-label { display: block; }
+.ss-drop .ss-opt-sub { display: block; color: #5B6B7B; font-size: .76rem; margin-top: 1px; }
 .ss-drop .ss-empty { margin: 0; padding: .5rem .6rem; color: #5B6B7B; font-size: .82rem; }
 </style>

@@ -532,34 +532,39 @@ function abrirPrint() {
 const showPrintChart = ref(false)
 function abrirPrintChart() { showPrintChart.value = true }
 function imprimir() { window.print() }
-function onPickMedidor(val) {
-  const id = val ?? lecForm.value.micromedidor_id
-  const m = (mm.opcionesMedidores || []).find((x) => x.id === id)
-  if (m && m.suscriptor_id) lecForm.value.suscriptor_id = m.suscriptor_id
+/* Buscador ÚNICO del fontanero: una opción por MEDIDOR que muestra
+   «Suscriptor · Medidor serial» (con la dirección como línea secundaria) y
+   permite buscar por nombre, dirección o serial. Al elegir se fijan a la vez
+   el medidor y su suscriptor (sin pasos intermedios). */
+const lecMmOptions = computed(() =>
+  (mm.opcionesMedidores || [])
+    .filter((m) => m.estado === 'activo' && m.suscriptor_id)
+    .map((m) => ({
+      value: m.id,
+      label: `${m.suscriptor_nombre || 'Sin suscriptor'} · Medidor ${m.serial}`,
+      sub: m.direccion || '',
+      search: `${m.serial} ${m.suscriptor_nombre || ''} ${m.direccion || ''}`,
+    }))
+)
+const lecMedidorSel = computed(() =>
+  (mm.opcionesMedidores || []).find((m) => m.id === lecForm.value.micromedidor_id) || null
+)
+function onPickMedidorUnico(val) {
+  const op = (mm.opcionesMedidores || []).find((m) => m.id === val)
+  lecForm.value.suscriptor_id = op?.suscriptor_id ?? null
 }
-/* Medidores disponibles para registrar lectura: solo ACTIVOS; si hay suscriptor
-   seleccionado, únicamente los medidores de ese suscriptor. */
-const lecMmOptions = computed(() => {
-  const activos = (mm.opcionesMedidores || []).filter((m) => m.estado === 'activo')
-  const lista = lecForm.value.suscriptor_id
-    ? activos.filter((m) => m.suscriptor_id === lecForm.value.suscriptor_id)
-    : activos
-  return lista.map((m) => ({ value: m.id, label: m.serial }))
-})
-watch(() => lecForm.value.suscriptor_id, (sid) => {
-  const activos = (mm.opcionesMedidores || []).filter((m) => m.estado === 'activo' && m.suscriptor_id === sid)
-  if (activos.length === 1) {
-    // Un solo medidor asociado: se selecciona automáticamente
-    lecForm.value.micromedidor_id = activos[0].id
-  } else if (!sid || !activos.some((m) => m.id === lecForm.value.micromedidor_id)) {
-    lecForm.value.micromedidor_id = null
-  }
-})
-function openNewLec() { lecForm.value = emptyLec(); lecError.value = ''; showLec.value = true }
+const lecNovedadVisible = ref(false)
+function openNewLec() {
+  lecForm.value = emptyLec()
+  lecError.value = ''
+  lecNovedadVisible.value = false
+  showLec.value = true
+  if (!mm.opcionesMedidores?.length) mm.loadMicromedidoresOpciones()
+}
 async function saveLec() {
   lecError.value = ''
-  if (!lecForm.value.micromedidor_id || !lecForm.value.suscriptor_id) { lecError.value = 'Medidor y suscriptor son obligatorios.'; return }
-  if (!lecForm.value.estimada && lecForm.value.lectura === '') { lecError.value = 'Ingrese el valor del medidor o marque la lectura como estimada.'; return }
+  if (!lecForm.value.micromedidor_id || !lecForm.value.suscriptor_id) { lecError.value = 'Selecciona el medidor.'; return }
+  if (!lecForm.value.estimada && lecForm.value.lectura === '') { lecError.value = 'Escriba el número que marca el medidor.'; return }
   if (fotoLecRef.value?.ocupado()) { lecError.value = 'Espera a que termine de subir la foto.'; return }
   saving.value = true
   try {
@@ -830,30 +835,42 @@ onMounted(() => {
     <!-- MODAL LECTURA -->
     <BaseModal v-model="showLec" title="Registrar lectura">
       <BaseAlert v-if="lecError" type="bad" class="mb-1">{{ lecError }}</BaseAlert>
-      <div class="form-row">
-        <div class="field" style="grid-column:span 2"><label>Suscriptor *</label>
-          <SearchableSelect v-model="lecForm.suscriptor_id" :options="susOptions" placeholder="Seleccione…" />
-        </div>
-        <div class="field" style="grid-column:span 2"><label>Micromedidor (activos) *</label>
-          <SearchableSelect v-model="lecForm.micromedidor_id" :options="lecMmOptions" placeholder="Se filtran por el suscriptor" @update:model-value="onPickMedidor" />
-          <p class="hint">Si el suscriptor tiene un solo medidor activo se selecciona automáticamente; solo se listan medidores activos.</p>
-        </div>
-        <div class="field" v-if="!lecForm.estimada"><label>Lectura (m³) *</label><input class="input" type="number" step="1" placeholder="0" v-model="lecForm.lectura" /></div>
-        <div class="field" v-else>
-          <label>Valor del medidor</label>
-          <input class="input" disabled placeholder="Se calculará automáticamente (lectura previa + promedio histórico)" />
-        </div>
-      </div>
+
+      <!-- Un solo buscador: nombre, dirección o número del medidor -->
       <div class="field">
-        <label class="flex center gap-1" style="font-weight:600;cursor:pointer">
-          <input type="checkbox" v-model="lecForm.estimada" /> Lectura estimada — no fue posible tomar la medición (el sistema calcula el valor del medidor con la lectura previa + promedio histórico)
-        </label>
-        <p class="hint">Según el procedimiento de Acuaricaurte, ante la falta de lectura se usa el promedio histórico.</p>
+        <label>Buscar medidor *</label>
+        <SearchableSelect v-model="lecForm.micromedidor_id" :options="lecMmOptions"
+          placeholder="Escriba el nombre, la dirección o el número del medidor…"
+          @update:model-value="onPickMedidorUnico" />
+        <p class="hint">Escriba el nombre, la dirección o el número y toque el medidor en la lista.</p>
       </div>
-      <div class="field">
+      <div v-if="lecMedidorSel" class="lec-sel">
+        <div class="lec-sel-nombre">{{ lecMedidorSel.suscriptor_nombre || 'Sin suscriptor' }}</div>
+        <div class="lec-sel-detalle">Medidor {{ lecMedidorSel.serial }}<template v-if="lecMedidorSel.direccion"> · {{ lecMedidorSel.direccion }}</template></div>
+      </div>
+
+      <div class="field" v-if="!lecForm.estimada">
+        <label>Lectura (m³) *</label>
+        <input class="input lec-input" type="number" step="1" inputmode="numeric" placeholder="0" v-model="lecForm.lectura" />
+      </div>
+      <div class="field" v-else>
+        <label>Valor del medidor</label>
+        <input class="input" disabled placeholder="Se calcula solo (lectura previa + promedio)" />
+      </div>
+
+      <!-- Opciones poco frecuentes: discretas para no distraer al fontanero -->
+      <label class="lec-mini">
+        <input type="checkbox" v-model="lecForm.estimada" />
+        No se pudo leer — registrar estimada con el promedio
+      </label>
+      <button v-if="!lecNovedadVisible && !lecForm.novedad" type="button" class="lec-mini-link" @click="lecNovedadVisible = true">
+        + Agregar novedad (opcional)
+      </button>
+      <div v-else class="field">
         <label>Novedad</label>
         <textarea class="textarea" v-model="lecForm.novedad" placeholder="Observación o novedad de la lectura"></textarea>
       </div>
+
       <FotoEvidencia ref="fotoLecRef" v-model="lecForm.foto_url" modulo="lectura" />
       <template #footer>
         <button class="btn btn-ghost" @click="showLec = false">Cancelar</button>
@@ -1321,4 +1338,24 @@ onMounted(() => {
 /* Miniaturas de evidencias en tablas */
 .mini-foto { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--acr-borde); cursor: zoom-in; }
 .mini-foto:hover { border-color: var(--acr-azul); }
+
+/* Registrar lectura (pensado para fontaneros: simple, claro y con números grandes) */
+.lec-sel {
+  border: 1px solid var(--acr-borde); border-left: 4px solid var(--acr-azul);
+  background: var(--acr-azul-50); border-radius: var(--acr-radio-sm);
+  padding: .55rem .7rem; margin: -.15rem 0 .8rem;
+}
+.lec-sel-nombre { font-weight: 700; color: var(--acr-azul-700); }
+.lec-sel-detalle { color: var(--acr-texto-suave); font-size: .85rem; }
+.lec-input { font-size: 1.3rem; font-weight: 700; padding: .6rem .7rem; }
+.lec-mini {
+  display: flex; align-items: center; gap: .45rem; font-size: .78rem;
+  color: var(--acr-texto-suave); cursor: pointer; margin: .1rem 0 .2rem;
+}
+.lec-mini input { accent-color: var(--acr-azul); width: 15px; height: 15px; }
+.lec-mini-link {
+  background: none; border: none; padding: 0; margin: .1rem 0 .2rem;
+  color: var(--acr-azul-700); font-size: .78rem; cursor: pointer;
+  text-decoration: underline; font-family: inherit;
+}
 </style>

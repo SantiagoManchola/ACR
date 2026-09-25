@@ -31,11 +31,11 @@ export async function confirmarEvidencia(key) {
 // Devuelve { public_url, stats }.
 export async function subirEvidencia(modulo, file, onPaso) {
   const comp = await comprimirImagen(file)
-  onPaso?.('Firmando subida…')
+  onPaso?.('Preparando foto…')
   const presign = await pedirPresign(modulo, comp.contentType)
   onPaso?.('Subiendo foto…')
   const publicUrl = await subirAR2(presign, comp.blob, comp.contentType)
-  onPaso?.('Confirmando…')
+  onPaso?.('Terminando…')
   await confirmarEvidencia(presign.key)
   return { public_url: publicUrl, stats: comp }
 }
