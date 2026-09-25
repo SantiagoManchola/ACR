@@ -236,6 +236,7 @@ Table micromedidores {
   direccion         varchar(200) // RF-23
   fecha_instalacion date // RF-23
   condicion         condicion_medidor [not null, default: 'bueno'] // bueno/defectuoso/frenado (automático)
+  condicion_reset_lectura_id integer // id de la última lectura al marcar 'bueno' manual: el frenado solo cuenta lecturas posteriores
   estado            estado_registro [not null, default: 'activo'] // soft delete
   created_by        integer [ref: > usuarios.id]
   updated_by        integer [ref: > usuarios.id]

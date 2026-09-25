@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS micromedidores (
   direccion         VARCHAR(200),
   fecha_instalacion DATE,
   condicion         ENUM('bueno','defectuoso','frenado') NOT NULL DEFAULT 'bueno',
+  condicion_reset_lectura_id INT,  -- corte de lecturas tras marcar 'bueno' manual
   estado            ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
   created_by        INT,
   updated_by        INT,
