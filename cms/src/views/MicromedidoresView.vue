@@ -857,7 +857,9 @@ onMounted(() => {
       <FotoEvidencia ref="fotoLecRef" v-model="lecForm.foto_url" modulo="lectura" />
       <template #footer>
         <button class="btn btn-ghost" @click="showLec = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="saveLec">{{ saving ? 'Guardando…' : 'Guardar lectura' }}</button>
+        <button class="btn btn-primary" :disabled="saving || fotoLecRef?.subiendo" @click="saveLec">
+          <span v-if="fotoLecRef?.subiendo" class="spinner"></span>{{ fotoLecRef?.subiendo ? 'Subiendo foto…' : (saving ? 'Guardando…' : 'Guardar lectura') }}
+        </button>
       </template>
     </BaseModal>
 
@@ -875,8 +877,8 @@ onMounted(() => {
       <FotoEvidencia ref="fotoEditRef" v-model="fotoForm.foto_url" modulo="lectura" label="Foto de evidencia" />
       <template #footer>
         <button class="btn btn-ghost" :disabled="fotoBusy" @click="showFoto = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="fotoBusy || fotoEditRef?.ocupado()" @click="guardarFotoLec">
-          <span v-if="fotoBusy" class="spinner"></span>{{ fotoBusy ? 'Guardando…' : 'Guardar foto' }}
+        <button class="btn btn-primary" :disabled="fotoBusy || fotoEditRef?.subiendo" @click="guardarFotoLec">
+          <span v-if="fotoBusy || fotoEditRef?.subiendo" class="spinner"></span>{{ fotoEditRef?.subiendo ? 'Subiendo foto…' : (fotoBusy ? 'Guardando…' : 'Guardar foto') }}
         </button>
       </template>
     </BaseModal>

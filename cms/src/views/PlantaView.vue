@@ -735,7 +735,9 @@ watch(tab, (t) => {
       <FotoEvidencia ref="fotoMedRef" v-model="medForm.foto_url" modulo="medicion" />
       <template #footer>
         <button class="btn btn-ghost" @click="showMed = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="saveMed">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+        <button class="btn btn-primary" :disabled="saving || fotoMedRef?.subiendo" @click="saveMed">
+          <span v-if="fotoMedRef?.subiendo" class="spinner"></span>{{ fotoMedRef?.subiendo ? 'Subiendo foto…' : (saving ? 'Guardando…' : 'Guardar') }}
+        </button>
       </template>
     </BaseModal>
 
@@ -805,7 +807,9 @@ watch(tab, (t) => {
       <FotoEvidencia ref="fotoActRef" v-model="actForm.foto_url" modulo="actividad" />
       <template #footer>
         <button class="btn btn-ghost" @click="showAct = false">Cancelar</button>
-        <button class="btn btn-primary" :disabled="saving" @click="saveAct">{{ saving ? 'Guardando…' : 'Guardar' }}</button>
+        <button class="btn btn-primary" :disabled="saving || fotoActRef?.subiendo" @click="saveAct">
+          <span v-if="fotoActRef?.subiendo" class="spinner"></span>{{ fotoActRef?.subiendo ? 'Subiendo foto…' : (saving ? 'Guardando…' : 'Guardar') }}
+        </button>
       </template>
     </BaseModal>
 
