@@ -12,6 +12,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import BaseInput from '../components/BaseInput.vue'
 import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
+import FacturacionPanel from '../components/facturacion/FacturacionPanel.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
 import { debounce } from '../utils/debounce'
@@ -29,13 +30,14 @@ const { busy: accionBusy, run: accionRun } = useBusy()
 // El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
 const esFontanero = computed(() => auth.rol === 'fontanero')
 const esAdmin = computed(() => auth.rol === 'admin')
+const puedeFacturar = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 /* Sincronía pestaña ↔ URL: /micromedidores/suscriptores, …/micromedidores, /micromedidores/lecturas
    (y …/sectores solo para admin). La pestaña es compartible y el watch
    reconsulta los datos al cambiar de URL. */
 const TABS_VALIDOS = ['suscriptores', 'micromedidores', 'lecturas']
 watch(() => route.params.tab, (t) => {
   if (t === undefined) return
-  const valido = TABS_VALIDOS.includes(t) || (t === 'sectores' && esAdmin.value)
+  const valido = TABS_VALIDOS.includes(t) || (t === 'sectores' && esAdmin.value) || (t === 'facturacion' && puedeFacturar.value)
   if (!valido) { router.replace({ name: 'micromedidores', params: { tab: tab.value } }); return }
   if (t !== tab.value) tab.value = t
 }, { immediate: true })
@@ -611,6 +613,7 @@ onMounted(() => {
       <button :class="{ active: tab === 'suscriptores' }" @click="setTab('suscriptores')"><AppIcon name="users" />Suscriptores</button>
       <button :class="{ active: tab === 'micromedidores' }" @click="setTab('micromedidores')"><AppIcon name="gauge" />Micromedidores</button>
       <button :class="{ active: tab === 'lecturas' }" @click="setTab('lecturas')"><AppIcon name="edit" />Lecturas</button>
+      <button v-if="puedeFacturar" :class="{ active: tab === 'facturacion' }" @click="setTab('facturacion')"><AppIcon name="report" />Facturación</button>
       <button v-if="esAdmin" :class="{ active: tab === 'sectores' }" @click="setTab('sectores')"><AppIcon name="mapPin" />Sectores</button>
     </div>
 
@@ -749,6 +752,11 @@ onMounted(() => {
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('lecturas'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
+    </div>
+
+    <!-- FACTURACIÓN (solo administrador y administrativo): contenido largo con scroll propio -->
+    <div v-else-if="tab === 'facturacion' && puedeFacturar" class="tab-panel view-scroll">
+      <FacturacionPanel />
     </div>
 
     <!-- SECTORES (catálogo, solo admin) -->

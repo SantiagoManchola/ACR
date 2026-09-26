@@ -96,6 +96,11 @@ uvicorn app.main:app --reload
   (`tipo=micromedidores` incluye la condición del medidor y acepta
   `orden=suscriptor|serial` + `dir_orden=asc|desc` para agrupar por suscriptor
   o imprimir por serial), `/reportes/planta` con filtros y `?formato=csv|xlsx|pdf`.
+- **Facturación desde plantilla:** `POST /facturacion/previsualizar` y
+  `POST /facturacion/generar` reciben `multipart/form-data` con archivo `.xlsx`,
+  mes/año de factura y rango de fechas de lectura. Acceso: admin y administrativo.
+  El primero devuelve resumen y novedades; el segundo devuelve una copia XLSX
+  actualizada, sin guardar el archivo ni modificar lecturas en la DB.
 - Detección de frenado: 3 lecturas iguales seguidas marcan `frenado`; al marcar
   manualmente `bueno` se guarda un corte (`condicion_reset_lectura_id`) y se
   requieren 3 lecturas nuevas iguales para volver a reportarlo.

@@ -38,6 +38,24 @@
 - **Por sector:** *Consulta por sector* agrupa consumos del barrio seleccionado.
 - **Reporte:** exporta el consumo histórico.
 
+### Preparar archivo mensual de facturación (administrador / administrativo)
+
+1. En *Micromedidores → Facturación*, selecciona el archivo `.xlsx` del software contable.
+2. Elige el mes y año que vas a facturar. El rango de lecturas sugerido inicia el día 25
+   del mes y termina el día 5 del siguiente; puedes ajustar ambas fechas.
+3. Pulsa *Previsualizar* y revisa las novedades agrupadas antes de generar el archivo.
+   Para los medidores se usa la lectura más reciente dentro del rango elegido. Si hay un
+   medidor sin lectura, códigos que no aparecen en ACR o diferencias de serial, quedan
+   identificados para revisión.
+4. Para usuarios sin medidor, desde marzo se calcula el valor numérico con la regla
+   `mes anterior - mes anteanterior + mes anterior`. Si falta el historial necesario, la
+   fila se reporta como pendiente.
+5. La columna del mes de la plantilla normalmente viene en 0 o vacía: esas celdas se completan
+   sin confirmación. Solo si ya trae valores distintos de cero, el sistema pide confirmar que
+   deseas reemplazarlos en la copia que se descargará. El archivo que subiste permanece intacto.
+6. Pulsa *Descargar Excel completado*. El detalle de procesamiento y las novedades se
+   pueden descargar aparte. Esta función no crea ni modifica lecturas en ACR.
+
 ## 4. Operario de planta — Planta de tratamiento
 
 - **Parámetros:** *Planta → Mediciones* → registra valor de pH, color, turbiedad, cloro
