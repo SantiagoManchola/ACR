@@ -575,6 +575,36 @@ const valorIgualAnterior = computed(() => {
   return lecForm.value.lectura !== '' && !Number.isNaN(v) && Number(lecAnterior.value.lectura) === v
 })
 watch(() => lecForm.value.micromedidor_id, (mid) => { mm.loadLecturaAnterior(mid) })
+
+/* Lectura MUY RECIENTE (< 20 días): la lectura es mensual, así que un
+   registro tan pronto suele ser un duplicado (ej. re-ingresar la del día
+   anterior con otra fecha). Solo avisa: el bloqueo duro es misma fecha /
+   valor menor. */
+const DIAS_AVISO_RECIENTE = 20
+const diasDesdeAnterior = computed(() => {
+  const f = lecAnterior.value?.fecha
+  if (!f) return null
+  return Math.round((new Date(hoyColombia() + 'T00:00:00') - new Date(f + 'T00:00:00')) / 86400000)
+})
+const lecturaReciente = computed(() =>
+  diasDesdeAnterior.value !== null && diasDesdeAnterior.value >= 0 && diasDesdeAnterior.value < DIAS_AVISO_RECIENTE
+)
+const textoReciente = computed(() => {
+  const n = diasDesdeAnterior.value
+  if (n === null) return ''
+  if (n <= 0) return 'hoy'
+  return n === 1 ? 'hace 1 día' : `hace ${n} días`
+})
+
+/* Confirmación al guardar un valor IGUAL al anterior: puede ser frenado
+   (no pasó agua) o un registro duplicado. El backend no lo bloquea porque
+   la detección de frenado depende de registrar lecturas idénticas. */
+const lecGuardarShow = ref(false)
+const lecGuardarMsg = computed(() => {
+  const a = lecAnterior.value
+  const v = Number(lecForm.value.lectura)
+  return `El valor escrito (${fmtNum(v, 0)}) es IGUAL al de la lectura anterior del ${a?.fecha ?? '—'}. Puede ser que el medidor esté frenado (no pasó agua) o que sea un registro duplicado. ¿Guardar de todos modos?`
+})
 const lecNovedadVisible = ref(false)
 function openNewLec() {
   lecForm.value = emptyLec()
@@ -583,6 +613,28 @@ function openNewLec() {
   showLec.value = true
   if (!mm.opcionesMedidores?.length) mm.loadMicromedidoresOpciones()
 }
+/* Guardas anti-duplicadas/errores antes de guardar (el backend revalida:
+   defensa en profundidad). Devuelven false si no se debe guardar. */
+function validarAntesDeGuardar() {
+  if (yaHayLecturaHoy.value) {
+    lecError.value = `Ya existe una lectura de este medidor con fecha de HOY (${lecAnterior.value.fecha}). Si fue un error, elimina esa lectura y vuelve a registrarla.`
+    return false
+  }
+  const a = lecAnterior.value
+  if (!lecForm.value.estimada && a && a.lectura !== null && a.lectura !== undefined) {
+    const v = Number(lecForm.value.lectura)
+    const prev = Number(a.lectura)
+    if (lecForm.value.lectura !== '' && !Number.isNaN(v)) {
+      if (v < prev) {
+        lecError.value = `La lectura (${fmtNum(v, 0)}) es MENOR que la anterior (${fmtNum(prev, 0)} del ${a.fecha}): el consumo saldría negativo. Revisa el valor.`
+        return false
+      }
+      if (v === prev) { lecGuardarShow.value = true; return false } // requiere confirmación
+    }
+  }
+  return true
+}
+
 async function saveLec() {
   lecError.value = ''
   if (!lecForm.value.micromedidor_id || !lecForm.value.suscriptor_id) { lecError.value = 'Selecciona el medidor.'; return }
@@ -593,6 +645,13 @@ async function saveLec() {
     if (!Number.isInteger(v) || v < 0) { lecError.value = 'La lectura debe ser un número entero, sin decimales.'; return }
   }
   if (fotoLecRef.value?.ocupado()) { lecError.value = 'Espera a que termine de subir la foto.'; return }
+  if (!validarAntesDeGuardar()) return
+  await doSaveLec()
+}
+
+/* Guardado real: se ejecuta tras pasar las guardas o al confirmar valor igual */
+async function doSaveLec() {
+  lecGuardarShow.value = false
   saving.value = true
   try {
     const payload = {
@@ -891,7 +950,7 @@ onMounted(() => {
       </div>
 
       <!-- Lectura ANTERIOR: para verificar la previa y detectar duplicadas -->
-      <div v-if="lecAnterior" class="lec-ant" :class="{ 'lec-ant-alerta': yaHayLecturaHoy || valorIgualAnterior }">
+      <div v-if="lecAnterior" class="lec-ant" :class="{ 'lec-ant-alerta': yaHayLecturaHoy || valorIgualAnterior || lecturaReciente }">
         <div class="lec-ant-linea">
           Lectura anterior: <strong>{{ fmtNum(lecAnterior.lectura, 0) }} m³</strong>
           · {{ lecAnterior.fecha }}<template v-if="lecAnterior.hora"> · {{ fmtHora(lecAnterior.hora) }}</template>
@@ -899,6 +958,7 @@ onMounted(() => {
         </div>
         <div v-if="yaHayLecturaHoy" class="lec-ant-aviso">Ya existe una lectura de este medidor con fecha de HOY ({{ lecAnterior.fecha }}): revise si es duplicada antes de guardar.</div>
         <div v-else-if="valorIgualAnterior" class="lec-ant-aviso">El valor escrito es IGUAL al de la lectura anterior: revise si es duplicada o si el medidor está frenado.</div>
+        <div v-else-if="lecturaReciente" class="lec-ant-aviso">Ya hay una lectura de este medidor del {{ lecAnterior.fecha }} ({{ textoReciente }}). La lectura es mensual: confirma que no sea duplicada.</div>
       </div>
       <p v-else-if="lecMedidorSel" class="hint" style="margin-top:-.3rem">Este medidor no tiene lecturas anteriores: esta será la primera.</p>
 
@@ -1234,6 +1294,10 @@ onMounted(() => {
     </BaseModal>
 
     <ConfirmModal v-model:show="confirmShow" :title="confirmTitle" :message="confirmMsg" confirm-text="Sí, inactivar" danger :loading="accionBusy" @confirm="doDel" />
+
+    <!-- Confirmación al guardar una lectura con valor IGUAL al anterior:
+         ¿medidor frenado o registro duplicado? -->
+    <ConfirmModal v-model:show="lecGuardarShow" title="Valor igual a la lectura anterior" :message="lecGuardarMsg" confirm-text="Guardar de todos modos" :danger="false" :loading="saving" @confirm="doSaveLec" />
 
     <VisorFoto v-model:show="visorShow" :src="visorSrc" :titulo="visorTitulo" />
   </div>
