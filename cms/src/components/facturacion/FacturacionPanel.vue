@@ -81,9 +81,9 @@ function alElegirArchivo(evento) {
   preview.value = null
   confirmarReemplazo.value = false
   if (!seleccionado) return
-  if (!seleccionado.name.toLowerCase().endsWith('.xlsx')) {
+  if (!seleccionado.name.toLowerCase().endsWith('.xlsx') && !seleccionado.name.toLowerCase().endsWith('.xls')) {
     archivo.value = null
-    error.value = 'Selecciona el formato de Excel .xlsx del sistema contable.'
+    error.value = 'Selecciona el archivo Excel del sistema contable (.xlsx o .xls 97-2003).'
     return
   }
   if (seleccionado.size > 20 * 1024 * 1024) {
@@ -189,12 +189,13 @@ function descargarAuditoria() {
 
     <div class="fact-form">
       <div class="field fact-archivo">
-        <label>Archivo Excel (.xlsx) *</label>
-        <input ref="inputArchivo" class="fact-file-hidden" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="alElegirArchivo" />
+        <label>Archivo Excel (.xlsx o .xls) *</label>
+        <input ref="inputArchivo" class="fact-file-hidden" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" @change="alElegirArchivo" />
         <div class="fact-file-line">
           <button type="button" class="btn btn-ghost" :disabled="previsualizando || generando" @click="elegirArchivo">Elegir archivo</button>
           <span class="fact-file-name" :class="{ muted: !archivo }">{{ archivo?.name || 'Ningún archivo seleccionado' }}</span>
         </div>
+        <p class="hint">Acepta el formato moderno (.xlsx) y el de Excel 97-2003 (.xls) tal como lo exporta el sistema contable. La copia descargada siempre se genera en .xlsx; si el sistema contable la exige en .xls, ábrela en Excel y usa «Guardar como → Excel 97-2003».</p>
       </div>
 
       <div class="form-row fact-periodo">
