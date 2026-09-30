@@ -11,6 +11,8 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
     micromedidoresTotal: 0,
     lecturas: [],
     lecturasTotal: 0,
+    // Última lectura del medidor seleccionado en el formulario (lectura anterior)
+    lecturaAnterior: null,
     consumo: [],
     sectores: [],
     historial: null,
@@ -104,11 +106,23 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
       } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async createLectura(p) { const { data } = await client.post('/lecturas', p); return data },
+    // Última lectura del medidor (mostrar la lectura anterior al registrar una
+    // nueva y detectar duplicadas). null si el medidor no tiene lecturas.
+    async loadLecturaAnterior(mid) {
+      if (!mid) { this.lecturaAnterior = null; return }
+      try {
+        const { data } = await client.get(`/lecturas/anterior/${mid}`)
+        this.lecturaAnterior = data
+      } catch { this.lecturaAnterior = null }
+    },
     // Adjuntar/reemplazar/quitar la evidencia de una lectura ya tomada (solo admin)
     async updateLecturaFoto(id, fotoUrl) {
       const { data } = await client.patch(`/lecturas/${id}`, { foto_url: fotoUrl || null })
       return data
     },
+    // Eliminar DEFINITIVAMENTE una lectura (superadmin/administrativo):
+    // desaparece de listados, reportes, dashboard y gráficas.
+    async deleteLectura(id) { await client.delete(`/lecturas/${id}`) },
 
     async loadConsumoPorSector(sector) {
       this.cargas++

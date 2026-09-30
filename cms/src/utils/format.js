@@ -30,6 +30,12 @@ export function hoyColombia() {
   }).format(new Date())
 }
 
+// Hora "HH:MM" (recorta segundos): "10:30:00" -> "10:30".
+export function fmtHora(h) {
+  if (!h) return '—'
+  return String(h).slice(0, 5)
+}
+
 // Opciones del selector de formato de reporte (CSV/XLSX/PDF), compartidas
 // por todas las vistas para un estilo único de selectores.
 export const formatoOptions = [

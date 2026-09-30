@@ -14,7 +14,7 @@ import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
 import FacturacionPanel from '../components/facturacion/FacturacionPanel.vue'
 import { apiError, descargarReporte } from '../api/http'
-import { fmtNum, hoyColombia, formatoOptions } from '../utils/format'
+import { fmtNum, fmtHora, hoyColombia, formatoOptions } from '../utils/format'
 import { debounce } from '../utils/debounce'
 import { useBusy } from '../utils/async'
 
@@ -30,6 +30,9 @@ const { busy: accionBusy, run: accionRun } = useBusy()
 // El fontanero SOLO puede tomar lecturas: sin CRUD de suscriptores ni medidores.
 const esFontanero = computed(() => auth.rol === 'fontanero')
 const esAdmin = computed(() => auth.rol === 'admin')
+const esAdministrativo = computed(() => auth.rol === 'administrativo')
+// Eliminar lecturas tomadas: superadministrador (admin) y administrativo.
+const puedeEliminarLectura = computed(() => esAdmin.value || esAdministrativo.value)
 const puedeFacturar = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 /* Sincronía pestaña ↔ URL: /micromedidores/suscriptores, …/micromedidores, /micromedidores/lecturas
    (y …/sectores solo para admin). La pestaña es compartible y el watch
@@ -82,6 +85,7 @@ function askDel(tipo, r) {
   pendingDel.value = { tipo, id: r.id }
   if (tipo === 'sus') { confirmTitle.value = 'Inactivar suscriptor'; confirmMsg.value = `¿Inactivar al suscriptor «${r.nombre}»?` }
   else if (tipo === 'sec') { confirmTitle.value = 'Inactivar sector'; confirmMsg.value = `¿Inactivar el sector «${r.nombre}»? Ya no será asignable, pero el historial se conserva.` }
+  else if (tipo === 'lec') { confirmTitle.value = 'Eliminar lectura'; confirmMsg.value = `¿Eliminar DEFINITIVAMENTE la lectura del ${r.fecha}? Desaparecerá de listados, reportes y gráficas y no podrá recuperarse.` }
   else { confirmTitle.value = 'Inactivar micromedidor'; confirmMsg.value = `¿Inactivar el micromedidor «${r.serial}»?` }
   confirmShow.value = true
 }
@@ -91,6 +95,7 @@ async function doDel() {
   await accionRun(async () => {
     if (p.tipo === 'sus') { await mm.deleteSuscriptor(p.id); await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value) }
     else if (p.tipo === 'sec') { await mm.deleteSector(p.id); await cargarSectores() }
+    else if (p.tipo === 'lec') { await mm.deleteLectura(p.id); await mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value, ordenLec.value, dirLec.value) }
     else { await mm.deleteMicromedidor(p.id); await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value) }
     confirmShow.value = false
     pendingDel.value = null
@@ -112,7 +117,10 @@ const conMedidorOptions = [
 ]
 const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '', con_medidor: null })
 const filtrosMm = ref({ serial: '', suscriptor_id: '', sector: '', condicion: '' })
-const filtrosLec = ref({ sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
+/* Filtros de lecturas: además de sector/fechas, filtro por suscriptor y
+   búsqueda unificada (nombre, serial del medidor o dirección), igual que el
+   buscador del formulario de registro. */
+const filtrosLec = ref({ suscriptor_id: '', buscar: '', sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 /* Página actual de cada pestaña (paginación server-side) */
 const pageSus = ref(1)
 const pageMm = ref(1)
@@ -555,6 +563,18 @@ function onPickMedidorUnico(val) {
   const op = (mm.opcionesMedidores || []).find((m) => m.id === val)
   lecForm.value.suscriptor_id = op?.suscriptor_id ?? null
 }
+
+/* Lectura ANTERIOR del medidor elegido: se consulta apenas se selecciona el
+   medidor para mostrarla ANTES de guardar (verificar la previa y detectar
+   duplicadas: misma fecha de hoy o mismo valor que la anterior). */
+const lecAnterior = computed(() => mm.lecturaAnterior)
+const yaHayLecturaHoy = computed(() => !!lecAnterior.value && lecAnterior.value.fecha === hoyColombia())
+const valorIgualAnterior = computed(() => {
+  if (!lecAnterior.value || lecForm.value.estimada) return false
+  const v = Number(lecForm.value.lectura)
+  return lecForm.value.lectura !== '' && !Number.isNaN(v) && Number(lecAnterior.value.lectura) === v
+})
+watch(() => lecForm.value.micromedidor_id, (mid) => { mm.loadLecturaAnterior(mid) })
 const lecNovedadVisible = ref(false)
 function openNewLec() {
   lecForm.value = emptyLec()
@@ -567,6 +587,11 @@ async function saveLec() {
   lecError.value = ''
   if (!lecForm.value.micromedidor_id || !lecForm.value.suscriptor_id) { lecError.value = 'Selecciona el medidor.'; return }
   if (!lecForm.value.estimada && lecForm.value.lectura === '') { lecError.value = 'Escriba el número que marca el medidor.'; return }
+  if (!lecForm.value.estimada) {
+    // Solo NÚMEROS ENTEROS (m³ sin decimales), igual que el resto del sistema.
+    const v = Number(lecForm.value.lectura)
+    if (!Number.isInteger(v) || v < 0) { lecError.value = 'La lectura debe ser un número entero, sin decimales.'; return }
+  }
   if (fotoLecRef.value?.ocupado()) { lecError.value = 'Espera a que termine de subir la foto.'; return }
   saving.value = true
   try {
@@ -714,6 +739,12 @@ onMounted(() => {
     <!-- LECTURAS -->
     <div v-else-if="tab === 'lecturas'" class="tab-panel">
       <div class="filter-bar">
+        <div class="field"><label>Buscar</label>
+          <BaseInput v-model="filtrosLec.buscar" placeholder="Usuario, medidor o dirección…" />
+        </div>
+        <div class="field"><label>Usuario</label>
+          <SearchableSelect v-model="filtrosLec.suscriptor_id" :options="susOptions" placeholder="Todos" clearable />
+        </div>
         <div class="field"><label>Sector</label>
           <SearchableSelect v-model="filtrosLec.sector" :options="sectorOptions" placeholder="Todos los sectores" clearable />
         </div>
@@ -735,6 +766,7 @@ onMounted(() => {
         <template #cell="{ row, col }">
           <span v-if="col.key === 'suscriptor'">{{ row.suscriptor_nombre || row.suscriptor_id }}</span>
           <span v-else-if="col.key === 'micromedidor_id'">{{ row.medidor_serial || row.micromedidor_id }}</span>
+          <span v-else-if="col.key === 'hora'">{{ fmtHora(row.hora) }}</span>
           <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'" :title="row.promedio_usado ? 'Consumo estimado con el promedio histórico (no fue posible tomar la medición)' : 'Medición física del medidor'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
           <span v-else-if="col.key === 'foto'">
             <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
@@ -743,8 +775,9 @@ onMounted(() => {
           </span>
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
-        <template v-if="esAdmin" #row-actions="{ row }">
-          <button class="btn btn-ghost btn-sm" :disabled="fotoBusy" @click="abrirFotoLec(row)" title="Adjuntar / cambiar foto de la lectura"><AppIcon name="camera" :size="16" /></button>
+        <template v-if="esAdmin || esAdministrativo" #row-actions="{ row }">
+          <button v-if="esAdmin" class="btn btn-ghost btn-sm" :disabled="fotoBusy" @click="abrirFotoLec(row)" title="Adjuntar / cambiar foto de la lectura"><AppIcon name="camera" :size="16" /></button>
+          <button v-if="puedeEliminarLectura" class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="askDel('lec', row)" title="Eliminar lectura definitivamente"><AppIcon name="trash" :size="16" /></button>
         </template>
       </DataTable>
       <div v-if="!esFontanero" class="report-bar">
@@ -857,9 +890,21 @@ onMounted(() => {
         <div class="lec-sel-detalle">Medidor {{ lecMedidorSel.serial }}<template v-if="lecMedidorSel.direccion"> · {{ lecMedidorSel.direccion }}</template></div>
       </div>
 
+      <!-- Lectura ANTERIOR: para verificar la previa y detectar duplicadas -->
+      <div v-if="lecAnterior" class="lec-ant" :class="{ 'lec-ant-alerta': yaHayLecturaHoy || valorIgualAnterior }">
+        <div class="lec-ant-linea">
+          Lectura anterior: <strong>{{ fmtNum(lecAnterior.lectura, 0) }} m³</strong>
+          · {{ lecAnterior.fecha }}<template v-if="lecAnterior.hora"> · {{ fmtHora(lecAnterior.hora) }}</template>
+          <template v-if="lecAnterior.consumo !== null && lecAnterior.consumo !== undefined"> · Consumo: {{ fmtNum(lecAnterior.consumo, 0) }} m³</template>
+        </div>
+        <div v-if="yaHayLecturaHoy" class="lec-ant-aviso">Ya existe una lectura de este medidor con fecha de HOY ({{ lecAnterior.fecha }}): revise si es duplicada antes de guardar.</div>
+        <div v-else-if="valorIgualAnterior" class="lec-ant-aviso">El valor escrito es IGUAL al de la lectura anterior: revise si es duplicada o si el medidor está frenado.</div>
+      </div>
+      <p v-else-if="lecMedidorSel" class="hint" style="margin-top:-.3rem">Este medidor no tiene lecturas anteriores: esta será la primera.</p>
+
       <div class="field" v-if="!lecForm.estimada">
         <label>Lectura (m³) *</label>
-        <input class="input lec-input" type="number" step="1" inputmode="numeric" placeholder="0" v-model="lecForm.lectura" />
+        <input class="input lec-input" type="number" step="1" min="0" inputmode="numeric" placeholder="0" v-model="lecForm.lectura" />
       </div>
       <div class="field" v-else>
         <label>Valor del medidor</label>
@@ -895,8 +940,9 @@ onMounted(() => {
         <div class="field" style="grid-column:span 2"><label>Suscriptor</label><input class="input" :value="fotoRow.suscriptor_nombre || '—'" disabled /></div>
         <div class="field"><label>Medidor</label><input class="input" :value="fotoRow.medidor_serial || fotoRow.micromedidor_id" disabled /></div>
         <div class="field"><label>Fecha</label><input class="input" :value="fotoRow.fecha" disabled /></div>
-        <div class="field"><label>Lectura (m³)</label><input class="input" :value="fmtNum(fotoRow.lectura)" disabled /></div>
-        <div class="field"><label>Consumo (m³)</label><input class="input" :value="fmtNum(fotoRow.consumo)" disabled /></div>
+        <div class="field"><label>Hora</label><input class="input" :value="fmtHora(fotoRow.hora)" disabled /></div>
+        <div class="field"><label>Lectura (m³)</label><input class="input" :value="fmtNum(fotoRow.lectura, 0)" disabled /></div>
+        <div class="field"><label>Consumo (m³)</label><input class="input" :value="fmtNum(fotoRow.consumo, 0)" disabled /></div>
       </div>
       <p class="hint" style="margin-top:0">Solo se agrega o cambia la evidencia fotográfica; los datos de medición no se modifican.</p>
       <FotoEvidencia ref="fotoEditRef" v-model="fotoForm.foto_url" modulo="lectura" label="Foto de evidencia" />
@@ -949,7 +995,8 @@ onMounted(() => {
           <h3 class="mt-2">Lecturas</h3>
           <DataTable :columns="detailLecCols" :rows="detailLecturas" empty-text="Sin lecturas registradas para este medidor.">
             <template #cell="{ row, col }">
-              <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key]) }}</span>
+              <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key], 0) }}</span>
+              <span v-else-if="col.key === 'hora'">{{ fmtHora(row.hora) }}</span>
               <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
               <span v-else-if="col.key === 'foto'">
                 <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
@@ -979,7 +1026,8 @@ onMounted(() => {
           <p class="muted mb-1" style="font-size:.82rem">Promedio histórico de consumo: <strong>{{ promedioTexto }}</strong></p>
           <DataTable :columns="detailLecCols" :rows="detailLecturas" empty-text="Sin lecturas registradas.">
             <template #cell="{ row, col }">
-              <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key]) }}</span>
+              <span v-if="col.num" :style="{ textAlign: col.align }">{{ fmtNum(row[col.key], 0) }}</span>
+              <span v-else-if="col.key === 'hora'">{{ fmtHora(row.hora) }}</span>
               <span v-else-if="col.key === 'tipo'"><span class="badge" :class="row.promedio_usado ? 'badge-info' : 'badge-muted'">{{ row.promedio_usado ? 'Estimada' : 'Física' }}</span></span>
               <span v-else-if="col.key === 'foto'">
                 <img v-if="row.foto_url" :src="row.foto_url" class="mini-foto" alt="Evidencia" loading="lazy"
@@ -1355,6 +1403,20 @@ onMounted(() => {
 }
 .lec-sel-nombre { font-weight: 700; color: var(--acr-azul-700); }
 .lec-sel-detalle { color: var(--acr-texto-suave); font-size: .85rem; }
+/* Caja de lectura anterior (formulario de registro): verifica la previa y
+   avisa posibles duplicadas (misma fecha de hoy o mismo valor). */
+.lec-ant {
+  border: 1px solid var(--acr-borde); border-left: 4px solid #9AA9BC;
+  background: #F5F7FA; border-radius: var(--acr-radio-sm);
+  padding: .55rem .7rem; margin: -.15rem 0 .8rem; font-size: .9rem;
+}
+.lec-ant-linea { color: var(--acr-texto); }
+.lec-ant-alerta { border-left-color: #E0A106; background: #FDF6E4; }
+.lec-ant-aviso {
+  margin-top: .3rem; font-size: .8rem; font-weight: 600; color: #8A6103;
+  display: flex; align-items: flex-start; gap: .35rem;
+}
+.lec-ant-aviso::before { content: '⚠'; }
 .lec-input { font-size: 1.3rem; font-weight: 700; padding: .6rem .7rem; }
 .lec-mini {
   display: flex; align-items: center; gap: .45rem; font-size: .78rem;
