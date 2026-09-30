@@ -115,7 +115,7 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
         this.lecturaAnterior = data
       } catch { this.lecturaAnterior = null }
     },
-    // Adjuntar/reemplazar/quitar la evidencia de una lectura ya tomada (solo admin)
+    // Adjuntar/reemplazar/quitar la evidencia de una lectura ya tomada (admin y administrativo)
     async updateLecturaFoto(id, fotoUrl) {
       const { data } = await client.patch(`/lecturas/${id}`, { foto_url: fotoUrl || null })
       return data

@@ -31,8 +31,10 @@ const { busy: accionBusy, run: accionRun } = useBusy()
 const esFontanero = computed(() => auth.rol === 'fontanero')
 const esAdmin = computed(() => auth.rol === 'admin')
 const esAdministrativo = computed(() => auth.rol === 'administrativo')
-// Eliminar lecturas tomadas: superadministrador (admin) y administrativo.
+// Eliminar lecturas tomadas y adjuntar/cambiar su evidencia fotográfica:
+// superadministrador (admin) y administrativo.
 const puedeEliminarLectura = computed(() => esAdmin.value || esAdministrativo.value)
+const puedeFotoLectura = computed(() => esAdmin.value || esAdministrativo.value)
 const puedeFacturar = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 /* Sincronía pestaña ↔ URL: /micromedidores/suscriptores, …/micromedidores, /micromedidores/lecturas
    (y …/sectores solo para admin). La pestaña es compartible y el watch
@@ -345,9 +347,9 @@ const emptyLec = () => ({ micromedidor_id: null, suscriptor_id: null, lectura: '
 const lecForm = ref(emptyLec())
 const fotoLecRef = ref(null)
 
-/* Adjuntar/actualizar la evidencia de una lectura YA registrada (solo admin).
-   Reutiliza FotoEvidencia (comprime -> presign -> PUT -> confirmar) y el
-   endpoint PATCH /lecturas/{id} que solo toca foto_url. */
+/* Adjuntar/actualizar la evidencia de una lectura YA registrada (admin y
+   administrativo). Reutiliza FotoEvidencia (comprime -> presign -> PUT ->
+   confirmar) y el endpoint PATCH /lecturas/{id} que solo toca foto_url. */
 const showFoto = ref(false)
 const fotoRow = ref(null)
 const fotoForm = ref({ foto_url: '' })
@@ -835,7 +837,7 @@ onMounted(() => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
         <template v-if="esAdmin || esAdministrativo" #row-actions="{ row }">
-          <button v-if="esAdmin" class="btn btn-ghost btn-sm" :disabled="fotoBusy" @click="abrirFotoLec(row)" title="Adjuntar / cambiar foto de la lectura"><AppIcon name="camera" :size="16" /></button>
+          <button v-if="puedeFotoLectura" class="btn btn-ghost btn-sm" :disabled="fotoBusy" @click="abrirFotoLec(row)" title="Adjuntar / cambiar foto de la lectura"><AppIcon name="camera" :size="16" /></button>
           <button v-if="puedeEliminarLectura" class="btn btn-ghost btn-sm" :disabled="accionBusy" @click="askDel('lec', row)" title="Eliminar lectura definitivamente"><AppIcon name="trash" :size="16" /></button>
         </template>
       </DataTable>
@@ -993,7 +995,7 @@ onMounted(() => {
       </template>
     </BaseModal>
 
-    <!-- MODAL FOTO DE LECTURA EXISTENTE (solo admin) -->
+    <!-- MODAL FOTO DE LECTURA EXISTENTE (admin y administrativo) -->
     <BaseModal v-model="showFoto" title="Evidencia de la lectura" size="480">
       <BaseAlert v-if="fotoError" type="bad" class="mb-1">{{ fotoError }}</BaseAlert>
       <div v-if="fotoRow" class="form-row" style="margin-bottom:.9rem">
