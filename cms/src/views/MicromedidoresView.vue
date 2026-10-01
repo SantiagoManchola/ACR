@@ -120,8 +120,8 @@ const conMedidorOptions = [
 const filtrosSus = ref({ nombre: '', identificacion: '', sector: '', tipo_usuario: '', con_medidor: null })
 const filtrosMm = ref({ serial: '', suscriptor_id: '', sector: '', condicion: '' })
 /* Filtros de lecturas: además de sector/fechas, filtro por suscriptor y
-   búsqueda unificada (nombre, serial del medidor o dirección), igual que el
-   buscador del formulario de registro. */
+   búsqueda unificada (nombre, serial del medidor, dirección o valor de la
+   lectura), igual que el buscador del formulario de registro. */
 const filtrosLec = ref({ suscriptor_id: '', buscar: '', sector: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
 /* Página actual de cada pestaña (paginación server-side) */
 const pageSus = ref(1)
@@ -383,6 +383,8 @@ const lecCols = [
   { key: 'micromedidor_id', label: 'Medidor', sortValue: (r) => r.medidor_serial || '' },
   { key: 'lectura', label: 'Lectura', align: 'right' },
   { key: 'consumo', label: 'Consumo', align: 'right' },
+  { key: 'anterior_lectura', label: 'Lectura anterior', align: 'right', sortable: false },
+  { key: 'anterior_fecha', label: 'Fecha/hora anterior', sortable: false, hideOnCard: true },
   { key: 'tipo', label: 'Tipo', sortValue: (r) => (r.promedio_usado ? 'estimada' : 'física') },
   { key: 'foto', label: 'Foto', sortable: false },
   { key: 'novedad', label: 'Novedad', wide: true },
@@ -801,7 +803,7 @@ onMounted(() => {
     <div v-else-if="tab === 'lecturas'" class="tab-panel">
       <div class="filter-bar">
         <div class="field"><label>Buscar</label>
-          <BaseInput v-model="filtrosLec.buscar" placeholder="Usuario, medidor o dirección…" />
+          <BaseInput v-model="filtrosLec.buscar" placeholder="Usuario, medidor, dirección o lectura…" />
         </div>
         <div class="field"><label>Usuario</label>
           <SearchableSelect v-model="filtrosLec.suscriptor_id" :options="susOptions" placeholder="Todos" clearable />
