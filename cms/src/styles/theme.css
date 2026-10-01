@@ -407,6 +407,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: .88rem; }
 }
 .report-bar .muted { align-self: center; margin-right: auto; font-size: .8rem; }
 .report-bar .select { width: auto; }
+/* Checkboxes de opciones del reporte (matriz mensual de micromedidores) */
+.check-inline {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font-size: .82rem; color: var(--acr-texto); cursor: pointer; user-select: none;
+}
+.check-inline input { width: 15px; height: 15px; accent-color: var(--acr-azul); cursor: pointer; }
 .btn-report {
   display: inline-flex; align-items: center; gap: .35rem;
   border: 1px solid var(--acr-borde); background: #fff; color: var(--acr-azul-700);

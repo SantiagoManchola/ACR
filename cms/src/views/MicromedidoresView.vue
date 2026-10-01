@@ -173,6 +173,13 @@ const repDirOptions = [
   { value: 'desc', label: 'Descendente' },
   { value: 'asc', label: 'Ascendente' },
 ]
+/* Matriz anual del reporte de micromedidores: si se escribe un año, el
+   reporte agrega junto al medidor las columnas Lectura/Consumo de cada mes.
+   Los dos checkboxes eligen qué grupos se muestran (lecturas, consumos o
+   ambos); sin año el reporte queda como siempre, sin la matriz. */
+const repAnioMm = ref('')
+const repLecMm = ref(true)
+const repConMm = ref(true)
 const repError = ref('')
 async function generarReporte(tipo) {
   repError.value = ''
@@ -182,6 +189,17 @@ async function generarReporte(tipo) {
     Object.assign(params, soloNoVacios(filtrosMm.value))
     params.orden = repOrdenMm.value
     params.dir_orden = repDirMm.value
+    // El año solo se envía si es un número de 4 dígitos (2000–2100).
+    const anio = parseInt(repAnioMm.value, 10)
+    if (anio >= 2000 && anio <= 2100) {
+      params.anio = anio
+      params.mostrar_lecturas = repLecMm.value
+      params.mostrar_consumos = repConMm.value
+      if (!repLecMm.value && !repConMm.value) {
+        repError.value = 'Marca al menos «Lecturas» o «Consumos» para la matriz mensual.'
+        return
+      }
+    }
   }
   else if (tipo === 'lecturas') Object.assign(params, soloNoVacios(filtrosLec.value))
   try {
@@ -795,6 +813,11 @@ onMounted(() => {
         <SearchableSelect v-model="repOrdenMm" :options="repOrdenOptions" placeholder="Ordenar por" style="width:auto;min-width:140px" />
         <SearchableSelect v-model="repDirMm" :options="repDirOptions" placeholder="Dirección" style="width:auto;min-width:140px" />
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
+        <!-- Matriz anual opcional: con año lleno se agregan columnas
+             Lectura/Consumo de cada mes junto al medidor. -->
+        <BaseInput v-model="repAnioMm" type="number" placeholder="Año (opcional)" style="width:auto;min-width:120px" />
+        <label class="check-inline"><input type="checkbox" v-model="repLecMm" /> Lecturas</label>
+        <label class="check-inline"><input type="checkbox" v-model="repConMm" /> Consumos</label>
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('micromedidores'))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
       </div>
     </div>
