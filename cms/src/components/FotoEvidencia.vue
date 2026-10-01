@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { apiError } from '../api/http'
 import { subirEvidencia } from '../api/evidencias'
+import { imagenDesdePortapapeles } from '../utils/imagen'
 
 const props = defineProps({
   modelValue: { type: String, default: '' }, // URL pública en R2 (o '')
@@ -32,14 +33,30 @@ function elegir() {
   inputRef.value?.click()
 }
 
+/* Pegar una imagen copiada (p. ej. captura de pantalla con ⌘V/Ctrl+V) sin
+   pasar por el selector de archivos. Se escucha globalmente mientras el
+   componente está montado y solo cuando está habilitado y sin foto previa:
+   así varios formularios no compiten por el mismo pegado. */
+function alPegar(e) {
+  if (props.disabled || subiendo.value) return
+  const blob = imagenDesdePortapapeles(e)
+  if (!blob) return // no hay imagen en el portapapeles: no intervenir
+  e.preventDefault()
+  procesar(blob)
+}
+
 async function alElegir(e) {
   const file = e.target.files?.[0]
   e.target.value = ''
   if (!file) return
+  await procesar(file)
+}
+
+async function procesar(archivo) {
   estado.value = 'subiendo'
   mensaje.value = 'Preparando foto…'
   try {
-    const { public_url } = await subirEvidencia(props.modulo, file, (paso) => { mensaje.value = paso })
+    const { public_url } = await subirEvidencia(props.modulo, archivo, (paso) => { mensaje.value = paso })
     vistaPrevia.value = public_url
     emit('update:modelValue', public_url)
     estado.value = 'listo'
@@ -49,6 +66,9 @@ async function alElegir(e) {
     mensaje.value = apiError(err, 'No se pudo subir la foto.')
   }
 }
+
+onMounted(() => document.addEventListener('paste', alPegar))
+onBeforeUnmount(() => document.removeEventListener('paste', alPegar))
 
 function quitar() {
   if (subiendo.value) return
@@ -77,7 +97,7 @@ defineExpose({ ocupado: () => subiendo.value, subiendo })
       </template>
       <template v-else>
         <AppIcon name="camera" :size="22" />
-        <span>Tomar o seleccionar foto</span>
+        <span>Tomar, seleccionar o PEGAR foto (⌘V / Ctrl+V)</span>
       </template>
     </div>
 

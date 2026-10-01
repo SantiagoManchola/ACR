@@ -18,6 +18,25 @@ export function validarImagen(file) {
   return ''
 }
 
+/* Extrae la imagen del portapapeles en un evento paste (Ctrl/Cmd+V).
+   Devuelve el Blob de la imagen o null si el portapapeles no trae imagen
+   (p. ej. hay texto copiado); así el componente ignora el pegado de texto. */
+export function imagenDesdePortapapeles(e) {
+  const items = e.clipboardData?.items
+  if (!items) return null
+  for (const item of items) {
+    if (item.type && item.type.startsWith('image/')) {
+      const blob = item.getAsFile()
+      if (blob) {
+        // Los navegadores pegan imágenes con nombre genérico; lo normalizamos.
+        try { blob.name = 'imagen-pegada.' + (item.type.split('/')[1] || 'png') } catch { /* de solo lectura en algunos navegadores */ }
+        return blob
+      }
+    }
+  }
+  return null
+}
+
 async function decodificar(file) {
   // createImageBitmap es más rápido y respeta la orientación EXIF.
   if ('createImageBitmap' in window) return createImageBitmap(file)
