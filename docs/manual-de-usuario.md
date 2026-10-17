@@ -63,6 +63,8 @@
 - **Fuera de rango:** si el valor supera el mínimo/máximo configurado, la casilla se marca
   en rojo; registra la **acción correctiva** (p. ej. ajustar cloro).
 - **Dosificación:** *Químicos* → registra producto y cantidad usada; controla existencias.
+  Si solo ajustas la dosificación (tasa de la bomba) sin incorporar químico, registra cantidad **0**:
+  queda en el histórico sin descontar existencias.
 - **Actividades:** registra limpieza, desinfección, lavado de tanques o bocatoma.
 - **Horas de servicio:** registra el tiempo de operación del día.
 - **Historial:** consulta mediciones y actividades por fecha.

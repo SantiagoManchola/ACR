@@ -323,12 +323,18 @@ async function saveIngreso() {
 function openNewDosis() { dosisForm.value = emptyDosis(); dosisError.value = ''; showDosis.value = true }
 async function saveDosis() {
   dosisError.value = ''
-  if (!dosisForm.value.elemento_id || !dosisForm.value.cantidad) { dosisError.value = 'Insumo y cantidad incorporada son obligatorios.'; return }
+  // Cantidad 0 es válida: registra un cambio de tasa/medición sin incorporar
+  // químico (no descuenta stock). Solo se exige un valor de 0 o mayor.
+  const cant = dosisForm.value.cantidad
+  if (!dosisForm.value.elemento_id || cant === '' || cant === null || Number.isNaN(Number(cant)) || Number(cant) < 0) {
+    dosisError.value = 'Insumo y cantidad incorporada (0 o mayor) son obligatorios.'; return
+  }
   saving.value = true
   try {
     await planta.createDosificacion({
       elemento_id: Number(dosisForm.value.elemento_id),
-      // Cantidad INCORPORADA (ej. 1 L): esto descuenta del inventario EN PLANTA
+      // Cantidad INCORPORADA (ej. 1 L): descuenta del inventario EN PLANTA;
+      // 0 = solo cambia la tasa/medición, no descuenta nada.
       cantidad: Number(dosisForm.value.cantidad),
       ubicacion_id: plantaUbi.value ? Number(plantaUbi.value.id) : null,
       // Tasa de la bomba (ej. ml/min): solo informativa, NO descuenta
@@ -779,12 +785,12 @@ watch(tab, (t) => {
         <div class="field" style="grid-column:span 2"><label>Insumo *</label>
           <SearchableSelect v-model="dosisForm.elemento_id" :options="prodOptionsDisp" placeholder="Seleccione un químico/insumo…" />
         </div>
-        <div class="field"><label>Cantidad incorporada *</label><input class="input" type="number" step="0.01" v-model="dosisForm.cantidad" placeholder="Ej. 1" /></div>
+        <div class="field"><label>Cantidad incorporada *</label><input class="input" type="number" step="0.01" v-model="dosisForm.cantidad" placeholder="Ej. 1 · 0 si solo cambia la tasa" /></div>
         <div class="field"><label>Tasa de dosificación</label><input class="input" type="number" step="0.1" v-model="dosisForm.tasa" placeholder="Ej. 5" /></div>
         <div class="field"><label>Unidad de tasa</label><input class="input" v-model="dosisForm.unidad_tasa" placeholder="ml/min" /></div>
       </div>
       <p class="hint" v-if="dosisUnidad">Unidad del insumo: <strong>{{ dosisUnidad }}</strong>.</p>
-      <p class="hint">La <strong>cantidad incorporada</strong> (ej. 1 L de cloro) <strong>descuenta del stock en «{{ plantaUbi?.nombre || 'Planta de tratamiento' }}»</strong> — el de otras sedes no se toca. La <strong>tasa</strong> (ej. ml/min de la bomba) es solo informativa: sirve para estimar cuánto tiempo dura el químico puesto en el tanque.</p>
+      <p class="hint">La <strong>cantidad incorporada</strong> (ej. 1 L de cloro) <strong>descuenta del stock en «{{ plantaUbi?.nombre || 'Planta de tratamiento' }}»</strong> — el de otras sedes no se toca. Si solo cambia la dosificación (tasa) sin incorporar químico, registre <strong>0</strong>: queda en el histórico sin descontar stock. La <strong>tasa</strong> (ej. ml/min de la bomba) es solo informativa: sirve para estimar cuánto tiempo dura el químico puesto en el tanque.</p>
       <div class="field"><label>Observaciones</label><textarea class="textarea" v-model="dosisForm.observaciones"></textarea></div>
       <template #footer>
         <button class="btn btn-ghost" @click="showDosis = false">Cancelar</button>
