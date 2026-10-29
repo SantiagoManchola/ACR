@@ -41,10 +41,18 @@ Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual
   responsable_id, observaciones) — punto de salida adicional del inventario.
 - `actividades_planta` (id, tipo, fecha, hora, responsable_id, estado, observaciones, evidencia)
 - `horas_servicio` (id, fecha, horas, responsable_id, observaciones)
+- `componentes_planta` (id, nombre, descripcion, orden, estado, created_by, timestamps):
+  catálogo de partes del diagrama lineal; el admin puede agregar, renombrar, reordenar
+  y desactivar.
+- `estados_componente_planta` (id, componente_id, estado: funcionando/afectacion/
+  fuera_servicio, nota, fecha, hora, responsable_id, created_by, timestamps): historial
+  inmutable de cambios; el estado actual es el último evento de cada parte.
+  La nota es obligatoria para afectación y fuera de funcionamiento.
 
 ## Reglas a reflejar en el modelo
 - Relaciones: suscriptor 1─* micromedidores; micromedidor 1─* lecturas;
-  elemento 1─* movimientos; parámetro 1─* mediciones; producto 1─* dosificaciones.
+  elemento 1─* movimientos; parámetro 1─* mediciones; producto 1─* dosificaciones;
+  componente de planta 1─* estados_componente_planta (historial inmutable).
 - Cada tabla transaccional lleva `created_by` / `updated_by` (trazabilidad, RNF-07).
 - `estado` (activo/inactivo) para soft delete donde aplique (regla de negocio 14).
 - Índices sugeridos: `lecturas(fecha, micromedidor_id)`, `mediciones(fecha, parametro_id)`,

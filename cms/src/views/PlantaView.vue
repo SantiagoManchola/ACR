@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePlantaStore } from '../stores/planta'
 import { useInventarioStore } from '../stores/inventario'
@@ -14,8 +14,12 @@ import FotoEvidencia from '../components/FotoEvidencia.vue'
 import VisorFoto from '../components/VisorFoto.vue'
 import BaseInput from '../components/BaseInput.vue'
 import GraficoHoras from '../components/GraficoHoras.vue'
+import DiagramaPlanta from '../components/planta/DiagramaPlanta.vue'
+import EstadoComponenteModal from '../components/planta/EstadoComponenteModal.vue'
+import ConfigurarComponentesModal from '../components/planta/ConfigurarComponentesModal.vue'
 import { apiError, descargarReporte } from '../api/http'
 import { fmtNum, fmtRango, hoyColombia, formatoOptions } from '../utils/format'
+import { estadoPlantaMeta, ESTADOS_PLANTA_OPTIONS } from '../utils/estadoPlanta'
 import { debounce } from '../utils/debounce'
 import { useBusy } from '../utils/async'
 
@@ -25,9 +29,10 @@ const usu = useUsuariosStore()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const tab = ref('parametros')
-/* Sincronía pestaña ↔ URL: /planta/parametros, /planta/mediciones, … */
-const TABS_VALIDOS = ['parametros', 'mediciones', 'fuera', 'productos', 'dosificaciones', 'actividades', 'horas']
+const tab = ref('estado')
+const tabsRef = ref(null)
+/* Sincronía pestaña ↔ URL: /planta/estado, /planta/parametros, … */
+const TABS_VALIDOS = ['estado', 'parametros', 'mediciones', 'fuera', 'productos', 'dosificaciones', 'actividades', 'horas']
 watch(() => route.params.tab, (t) => {
   if (t === undefined) return
   if (!TABS_VALIDOS.includes(t)) { router.replace({ name: 'planta', params: { tab: tab.value } }); return }
@@ -37,6 +42,11 @@ function setTab(t) {
   tab.value = t
   router.replace({ name: 'planta', params: { tab: t } })
 }
+/* Con las pestañas en una sola línea, la activa se centra al cambiar de vista. */
+function centrarTabActiva() {
+  const activo = tabsRef.value?.querySelector('button.active')
+  activo?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+}
 const saving = ref(false)
 /* Cargas de botones asíncronos: deshabilitados hasta resolver la petición */
 const { busy: repBusy, run: repRun } = useBusy()
@@ -45,6 +55,7 @@ const { busy: refrescando, run: refRun } = useBusy()
 // solo registra INGRESOS (entradas) de químicos YA EXISTENTES en la planta.
 // El backend lo restringe a químicos EN planta (403 en otro caso).
 const esOperario = computed(() => auth.rol === 'operario')
+const esAdmin = computed(() => auth.rol === 'admin')
 const puedeGestionarUsuarios = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 
 const paramMap = computed(() => Object.fromEntries(planta.parametros.map((p) => [p.id, p])))
@@ -93,6 +104,69 @@ async function generarReporte(tipo, filtros = {}) {
   const params = { tipo, formato: formatoReporte.value, ...buildFiltros(filtros) }
   try { await descargarReporte('/reportes/planta', params, `reporte_${tipo}`) }
   catch (e) { alert(apiError(e)) }
+}
+
+/* ------------------------- Estado operativo de la planta ------------------------- */
+const estadoResumen = computed(() => {
+  const resumen = { total: planta.componentes.length, funcionando: 0, afectacion: 0, fuera_servicio: 0, incidencias: 0 }
+  for (const c of planta.componentes) {
+    if (c.estado_actual === 'afectacion') resumen.afectacion++
+    else if (c.estado_actual === 'fuera_servicio') resumen.fuera_servicio++
+    else if (c.estado_actual === 'funcionando') resumen.funcionando++
+  }
+  resumen.incidencias = resumen.afectacion + resumen.fuera_servicio
+  return resumen
+})
+const estadoOptions = computed(() => ESTADOS_PLANTA_OPTIONS.map((e) => ({ value: e.value, label: e.label })))
+const componenteOptions = computed(() => planta.componentes.map((c) => ({ value: c.id, label: c.nombre })))
+
+const estadoFiltro = ref({ componente_id: '', estado: '', fecha_inicio: hoyColombia(), fecha_fin: hoyColombia() })
+const pageEstado = ref(1)
+const ordenEstado = ref('')
+const dirEstado = ref('desc')
+function filtrarEstados() {
+  return planta.loadEstados(buildFiltros(estadoFiltro.value), pageEstado.value, ordenEstado.value, dirEstado.value)
+}
+watch(estadoFiltro, debounce(() => { pageEstado.value = 1; filtrarEstados() }, 350), { deep: true })
+function irPaginaEstado(p) { pageEstado.value = p; filtrarEstados() }
+function ordenarEstado({ key, dir }) { ordenEstado.value = key; dirEstado.value = dir; pageEstado.value = 1; filtrarEstados() }
+
+const estadoCols = [
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'hora', label: 'Hora', hideOnCard: true },
+  { key: 'componente', label: 'Parte', cardTitle: true, sortValue: (r) => r.componente_nombre || '' },
+  { key: 'estado', label: 'Estado' },
+  { key: 'nota', label: 'Nota', wide: true },
+  { key: 'responsable', label: 'Responsable', sortValue: (r) => r.responsable_nombre || '' },
+]
+
+const showEstado = ref(false)
+const showConfig = ref(false)
+const componenteSeleccionado = ref(null)
+const estadoError = ref('')
+const guardandoEstado = ref(false)
+function abrirEstado(componente) {
+  componenteSeleccionado.value = componente
+  estadoError.value = ''
+  showEstado.value = true
+}
+function verEstadoComponente(componente) {
+  if (tab.value !== 'estado') setTab('estado')
+  abrirEstado(componente)
+}
+async function guardarEstado(payload) {
+  if (!componenteSeleccionado.value) return
+  estadoError.value = ''
+  guardandoEstado.value = true
+  try {
+    await planta.registrarEstadoComponente(componenteSeleccionado.value.id, payload)
+    showEstado.value = false
+    await Promise.all([planta.loadComponentes(), filtrarEstados()])
+  } catch (e) {
+    estadoError.value = apiError(e)
+  } finally {
+    guardandoEstado.value = false
+  }
 }
 
 /* Filtros por pestaña (fechas por defecto: hoy en Colombia; auto-búsqueda con debounce) */
@@ -145,8 +219,9 @@ function refreshPlanta() {
   const tareas = [
     planta.loadParametros(), inv.loadCategorias(), inv.loadQuimicos(), inv.loadUbicaciones(),
     filtrarMed(), filtrarAct(), filtrarDosis(), filtrarHora(),
-    planta.loadFueraRango(),
+    planta.loadFueraRango(), planta.loadComponentes(),
   ]
+  if (tab.value === 'estado') tareas.push(filtrarEstados())
   if (puedeGestionarUsuarios.value) tareas.push(usu.loadOpciones())
   return Promise.all(tareas)
 }
@@ -450,32 +525,62 @@ onMounted(() => {
   inv.loadQuimicos()
   inv.loadUbicaciones()
   planta.loadFueraRango()
+  planta.loadComponentes()
   planta.loadUsuariosOpciones()
+  if (tab.value === 'estado') filtrarEstados()
   if (puedeGestionarUsuarios.value) usu.loadOpciones()
+  nextTick(centrarTabActiva)
 })
 
 /* Al entrar a cada pestaña se refrescan sus datos para no mostrar información desactualizada
    (punto 5: los químicos se actualizan al registrar dosificaciones / al abrir la pestaña). */
 watch(tab, (t) => {
-  if (t === 'productos') inv.loadQuimicos()
+  if (t === 'estado') { planta.loadComponentes(); filtrarEstados() }
+  else if (t === 'productos') inv.loadQuimicos()
   else if (t === 'dosificaciones') filtrarDosis()
   else if (t === 'mediciones') filtrarMed()
   else if (t === 'fuera') planta.loadFueraRango()
   else if (t === 'actividades') filtrarAct()
   else if (t === 'horas') filtrarHora()
+  nextTick(centrarTabActiva)
 })
 </script>
 
 <template>
-  <div class="view-fit">
-    <h1>Planta de tratamiento</h1>
-    <p class="muted">Parámetros, mediciones, dosificaciones, actividades y horas de servicio.</p>
-
-    <div class="toolbar" style="margin-bottom:1rem">
-      <button class="btn btn-ghost" :disabled="refrescando" @click="refrescar"><span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />{{ refrescando ? 'Actualizando…' : 'Refrescar' }}</button>
+  <div class="view-fit planta-view">
+    <div class="planta-head">
+      <div class="planta-head-copy">
+        <h1>Planta de tratamiento</h1>
+        <p class="muted">Estado operativo, parámetros, dosificación, actividades y horas de servicio.</p>
+      </div>
+      <button class="btn btn-ghost planta-refresh" :disabled="refrescando" @click="refrescar">
+        <span v-if="refrescando" class="spinner"></span><AppIcon v-else name="refresh" />
+        {{ refrescando ? 'Actualizando…' : 'Refrescar' }}
+      </button>
     </div>
 
-    <div class="tabs">
+    <!-- Diagrama compacto y fijo entre pestañas: solo para el admin.
+         El operario lo consulta en la pestaña Estado de la planta. -->
+    <div v-if="esAdmin && tab !== 'estado' && planta.componentes.length" class="estado-strip">
+      <div class="estado-strip-head">
+        <div class="estado-strip-title">
+          <AppIcon name="drop" :size="18" />
+          <strong>Estado de la planta</strong>
+          <span class="muted">
+            {{ estadoResumen.funcionando }} en funcionamiento ·
+            {{ estadoResumen.incidencias ? `${estadoResumen.incidencias} con novedad` : 'sin novedades' }}
+          </span>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="setTab('estado')">Ver y actualizar <AppIcon name="chevronRight" :size="16" /></button>
+      </div>
+      <DiagramaPlanta :componentes="planta.componentes" compact @select="verEstadoComponente" />
+    </div>
+
+    <div ref="tabsRef" class="tabs planta-tabs">
+      <button :class="{ active: tab === 'estado' }" @click="setTab('estado')">
+        <AppIcon name="drop" />Estado de la planta
+        <span v-if="estadoResumen.incidencias" class="badge badge-bad">{{ estadoResumen.incidencias }}</span>
+      </button>
       <button :class="{ active: tab === 'parametros' }" @click="setTab('parametros')"><AppIcon name="flask" />Parámetros</button>
       <button :class="{ active: tab === 'mediciones' }" @click="setTab('mediciones')"><AppIcon name="drop" />Mediciones</button>
       <button :class="{ active: tab === 'fuera' }" @click="setTab('fuera')">
@@ -490,8 +595,99 @@ watch(tab, (t) => {
       <button :class="{ active: tab === 'horas' }" @click="setTab('horas')"><AppIcon name="clock" />Horas de servicio</button>
     </div>
 
+    <!-- ESTADO DE LA PLANTA -->
+    <div v-if="tab === 'estado'" class="tab-panel estado-panel">
+      <BaseAlert v-if="planta.error" type="bad" class="mb-1">{{ planta.error }}</BaseAlert>
+      <div class="estado-cabecera">
+        <div>
+          <p class="muted" style="margin:0 0 .5rem">
+            Toca una parte del diagrama para cambiar su estado y registrar una nota. Cada cambio queda en el historial con fecha y responsable.
+          </p>
+          <div class="leyenda-estado">
+            <span v-for="op in ESTADOS_PLANTA_OPTIONS" :key="op.value" class="leyenda-item" :class="`estado-${op.color}`">
+              <span class="dot" aria-hidden="true"></span>
+              <strong>{{ op.label }}:</strong> {{ op.descripcion }}
+            </span>
+          </div>
+        </div>
+        <div v-if="esAdmin" class="toolbar" style="margin:0">
+          <button class="btn btn-ghost" @click="showConfig = true"><AppIcon name="edit" />Configurar partes</button>
+        </div>
+      </div>
+
+      <DiagramaPlanta :componentes="planta.componentes" @select="abrirEstado" />
+
+      <div class="estado-resumen">
+        <div class="resumen-card">
+          <span class="resumen-dato">Partes</span>
+          <strong>{{ estadoResumen.total }}</strong>
+        </div>
+        <div class="resumen-card estado-ok">
+          <span class="resumen-dato">En funcionamiento</span>
+          <strong>{{ estadoResumen.funcionando }}</strong>
+        </div>
+        <div class="resumen-card estado-warn">
+          <span class="resumen-dato">Afectación</span>
+          <strong>{{ estadoResumen.afectacion }}</strong>
+        </div>
+        <div class="resumen-card estado-bad">
+          <span class="resumen-dato">Fuera de funcionamiento</span>
+          <strong>{{ estadoResumen.fuera_servicio }}</strong>
+        </div>
+      </div>
+
+      <div class="estado-historial">
+        <div class="card-head">
+          <div class="title"><AppIcon name="clock" :size="18" /><strong>Historial de cambios</strong></div>
+          <span class="subtitle">Cada cambio conserva fecha, responsable y nota.</span>
+        </div>
+
+        <div class="filter-bar">
+          <div class="field"><label>Parte</label>
+            <SearchableSelect v-model="estadoFiltro.componente_id" :options="componenteOptions" placeholder="Todas" clearable />
+          </div>
+          <div class="field"><label>Estado</label>
+            <SearchableSelect v-model="estadoFiltro.estado" :options="estadoOptions" placeholder="Todos" clearable />
+          </div>
+          <div class="field"><label>Desde</label><BaseInput v-model="estadoFiltro.fecha_inicio" type="date" /></div>
+          <div class="field"><label>Hasta</label><BaseInput v-model="estadoFiltro.fecha_fin" type="date" /></div>
+        </div>
+
+        <DataTable
+          :columns="estadoCols" :rows="planta.estados" :loading="planta.loading"
+          :total="planta.estadosTotal" :page="pageEstado" :page-size="20"
+          :sort-by="ordenEstado" :sort-dir="dirEstado"
+          empty-text="Sin cambios de estado registrados."
+          @update:page="irPaginaEstado"
+          @update:sort="ordenarEstado"
+        >
+          <template #cell="{ row, col }">
+            <span v-if="col.key === 'hora'">{{ row.hora ? String(row.hora).slice(0, 5) : '—' }}</span>
+            <span v-else-if="col.key === 'componente'"><strong>{{ row.componente_nombre }}</strong></span>
+            <span v-else-if="col.key === 'estado'">
+              <span class="badge" :class="`badge-${estadoPlantaMeta(row.estado).color}`">{{ estadoPlantaMeta(row.estado).label }}</span>
+            </span>
+            <span v-else-if="col.key === 'responsable'">{{ row.responsable_nombre || '—' }}</span>
+            <span v-else-if="col.key === 'nota'">{{ row.nota || '—' }}</span>
+            <span v-else>{{ row[col.key] ?? '—' }}</span>
+          </template>
+        </DataTable>
+
+        <div v-if="esAdmin" class="report-bar">
+          <label>Formato</label>
+          <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
+          <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('estado-actual', {}))">
+            <span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />Reporte estado actual
+          </button>
+          <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('historial-estados', estadoFiltro))">
+            <span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />Historial
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- PARÁMETROS -->
-    <div v-if="tab === 'parametros'" class="tab-panel">
+    <div v-else-if="tab === 'parametros'" class="tab-panel">
       <div class="toolbar"><button v-if="!esOperario" class="btn btn-primary" @click="openNewParam"><AppIcon name="plus" />Nuevo parámetro</button></div>
       <DataTable :columns="paramCols" :rows="planta.parametros" :loading="planta.loading" empty-text="Sin parámetros configurados.">
         <template #cell="{ row, col }">
@@ -543,7 +739,7 @@ watch(tab, (t) => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="esAdmin" class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('mediciones', medFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
@@ -593,7 +789,7 @@ watch(tab, (t) => {
           <button class="btn btn-ghost btn-sm" @click="openIngreso(row)" title="Registrar ingreso"><AppIcon name="plus" :size="16" /></button>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="esAdmin" class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('quimicos', {}))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
@@ -639,7 +835,7 @@ watch(tab, (t) => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="esAdmin" class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('dosificaciones', dosisFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
@@ -677,7 +873,7 @@ watch(tab, (t) => {
           <span v-else>{{ row[col.key] ?? '—' }}</span>
         </template>
       </DataTable>
-      <div class="report-bar">
+      <div v-if="esAdmin" class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('actividades', actFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
@@ -685,7 +881,7 @@ watch(tab, (t) => {
     </div>
 
     <!-- HORAS -->
-    <div v-else class="tab-panel">
+    <div v-else class="tab-panel horas-panel">
       <div class="filter-bar">
         <div class="field"><label>Desde</label><BaseInput v-model="horaFiltro.fecha_inicio" type="date" /></div>
         <div class="field"><label>Hasta</label><BaseInput v-model="horaFiltro.fecha_fin" type="date" /></div>
@@ -702,7 +898,7 @@ watch(tab, (t) => {
         @update:page="irPaginaHora"
         @update:sort="ordenarHora"
       />
-      <div class="report-bar">
+      <div v-if="esAdmin" class="report-bar">
         <label>Formato</label>
         <SearchableSelect v-model="formatoReporte" :options="formatoOptions" placeholder="Formato" style="width:auto;min-width:130px" />
         <button class="btn btn-ghost" :disabled="repBusy" @click="repRun(() => generarReporte('horas', horaFiltro))"><span v-if="repBusy" class="spinner"></span><AppIcon v-else name="download" />{{ repBusy ? 'Generando…' : 'Generar reporte' }}</button>
@@ -836,6 +1032,16 @@ watch(tab, (t) => {
     </BaseModal>
 
     <VisorFoto v-model:show="visorShow" :src="visorSrc" :titulo="visorTitulo" />
+
+    <EstadoComponenteModal
+      v-model="showEstado"
+      :componente="componenteSeleccionado"
+      :saving="guardandoEstado"
+      :error="estadoError"
+      @save="guardarEstado"
+      @clear-error="estadoError = ''"
+    />
+    <ConfigurarComponentesModal v-model="showConfig" />
   </div>
 </template>
 
@@ -843,4 +1049,135 @@ watch(tab, (t) => {
 /* Miniaturas de evidencias en tablas */
 .mini-foto { width: 56px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid var(--acr-borde); cursor: zoom-in; }
 .mini-foto:hover { border-color: var(--acr-azul); }
+
+/* Cabecera compacta: el refresco general sube junto al título y libera una fila */
+.planta-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  flex-wrap: wrap;
+  margin-bottom: .5rem;
+}
+.planta-head-copy { min-width: 0; }
+.planta-head-copy h1 { margin: 0; }
+.planta-head-copy .muted {
+  margin: .15rem 0 0;
+  max-width: 85ch;
+  font-size: .84rem;
+  line-height: 1.35;
+}
+.planta-refresh { flex: none; }
+/* Pestañas en una sola línea con scroll horizontal: evita que ocupen 2–3 filas */
+.planta-tabs {
+  flex-wrap: nowrap;
+  gap: .15rem;
+  overflow-x: auto;
+  margin-bottom: .7rem;
+  padding-bottom: 1px;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.planta-tabs button {
+  flex: 0 0 auto;
+  padding: .5rem .7rem;
+  white-space: nowrap;
+}
+
+/* Diagrama compacto fijo en las pestañas que no son de estado */
+.estado-strip {
+  border: 1px solid var(--acr-borde);
+  border-radius: var(--acr-radio);
+  background: #fff;
+  box-shadow: var(--acr-sombra-sm);
+  padding: .5rem .65rem .3rem;
+  margin-bottom: .65rem;
+}
+.estado-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+  margin-bottom: .15rem;
+}
+.estado-strip-title { display: flex; align-items: center; gap: .4rem; min-width: 0; flex-wrap: wrap; }
+.estado-strip-title .acr-icon { color: var(--acr-azul); }
+.estado-strip-title .muted { font-size: .78rem; }
+
+/* Pestaña Estado de la planta */
+.estado-panel { overflow-y: auto; display: block !important; padding-right: .2rem; }
+.estado-cabecera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.leyenda-estado { display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; }
+.leyenda-item { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--acr-texto-suave); }
+.leyenda-item strong { color: var(--acr-texto); }
+.leyenda-item .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.leyenda-item.estado-ok { color: var(--acr-ok); }
+.leyenda-item.estado-warn { color: var(--acr-warn); }
+.leyenda-item.estado-bad { color: var(--acr-bad); }
+.estado-resumen { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: .55rem; margin-bottom: .85rem; }
+.estado-resumen .resumen-card {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .55rem .7rem;
+  border-left: 4px solid var(--acr-borde);
+}
+.estado-resumen .resumen-card strong { font-size: 1.2rem; color: var(--acr-texto); }
+.estado-resumen .estado-ok { border-left-color: var(--acr-ok); background: var(--acr-ok-bg); }
+.estado-resumen .estado-warn { border-left-color: var(--acr-warn); background: var(--acr-warn-bg); }
+.estado-resumen .estado-bad { border-left-color: var(--acr-bad); background: var(--acr-bad-bg); }
+.estado-historial {
+  margin-top: 1rem;
+  border-top: 1px solid var(--acr-borde);
+  padding-top: .8rem;
+}
+.estado-historial :deep(.data-table) { max-height: 430px; }
+.estado-historial :deep(.table-wrap) { max-height: 330px; }
+
+/* Horas de servicio: el panel tiene scroll propio para que el gráfico
+   conserve su altura completa y la tabla quede debajo, sin comprimirlo. */
+.horas-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: block !important;
+  padding-right: .2rem;
+  padding-bottom: .75rem;
+}
+.horas-panel :deep(.chart-wrap) { flex: none; }
+.horas-panel :deep(.data-table) { flex: none; }
+.horas-panel :deep(.table-wrap) { max-height: none; }
+
+@media (max-width: 700px) {
+  .planta-head { align-items: flex-start; gap: .5rem; }
+  .planta-head-copy .muted { font-size: .8rem; }
+  .planta-refresh { padding: .45rem .7rem; }
+  .planta-tabs { margin-bottom: .6rem; }
+  .estado-panel { display: block !important; }
+  .estado-cabecera { gap: .65rem; }
+  .leyenda-estado { gap: .35rem .65rem; }
+  .leyenda-item { font-size: .72rem; align-items: flex-start; }
+  /* Una tarjeta por fila: evita que las etiquetas largas queden apretadas */
+  .estado-resumen { grid-template-columns: 1fr; gap: .55rem; }
+  .estado-resumen .resumen-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: .8rem;
+    min-height: 58px;
+    padding: .8rem .9rem;
+  }
+  .estado-resumen .resumen-dato { font-size: .8rem; line-height: 1.3; }
+  .estado-resumen .resumen-card strong { font-size: 1.5rem; line-height: 1; }
+  .estado-historial :deep(.data-table), .estado-historial :deep(.table-wrap) { max-height: none; }
+}
 </style>

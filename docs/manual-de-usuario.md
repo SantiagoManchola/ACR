@@ -58,6 +58,16 @@
 
 ## 4. Operario de planta — Planta de tratamiento
 
+- **Estado de la planta:** entra a *Planta → Estado de la planta* para ver el diagrama
+  lineal de las partes. Toca una parte para cambiar su estado:
+  - **En funcionamiento** (verde): opera normalmente.
+  - **Afectación** (amarillo): opera parcialmente o con restricción.
+  - **Fuera de funcionamiento** (rojo): no está operando.
+  Cuando elijas amarillo o rojo, escribe una **nota obligatoria** explicando el motivo.
+  Cada cambio queda en el historial con fecha, hora y tu nombre.
+- **Partes del diagrama:** el administrador puede agregar, renombrar, reordenar o
+  desactivar partes desde *Estado de la planta → Configurar partes*. El operario solo
+  registra estados y notas.
 - **Parámetros:** *Planta → Mediciones* → registra valor de pH, color, turbiedad, cloro
   residual o temperatura (cruda/tratada). La fecha y hora se guardan solas.
 - **Fuera de rango:** si el valor supera el mínimo/máximo configurado, la casilla se marca
@@ -73,12 +83,18 @@
 
 - *Admin → Usuarios*: crear, editar, desactivar usuarios y asignarles un rol.
 - *Admin → Roles*: definir qué puede hacer cada rol.
+- *Planta → Estado de la planta → Configurar partes*: agregar, renombrar, reordenar o
+  desactivar partes del diagrama. El operario solo puede cambiar estados y notas.
 - La información de la planta queda restringida a roles autorizados.
 
-## 6. Reportes (todos los roles según permiso)
+## 6. Reportes (administrador y personal administrativo)
 
-- Menú *Reportes* → elige módulo (Inventario / Consumo / Planta), filtra por fecha o sector
-  y pulsa *Exportar*.
+- Menú *Reportes* → elige módulo (Inventario / Consumo / Planta / estado actual /
+  historial de estados), filtra por fecha, sector, parte o estado y pulsa *Descargar*.
+- El administrador también puede generar el reporte directamente desde
+  *Planta → Estado de la planta*: **Reporte estado actual** o **Historial**.
+- El operario de planta no tiene sección de reportes: su trabajo se concentra en
+  registrar estados, notas y la operación diaria.
 
 ## 7. Buenas prácticas
 

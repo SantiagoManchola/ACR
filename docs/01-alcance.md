@@ -42,7 +42,9 @@
   RF-45 Actividades (limpieza, desinfección, tanques, bocatoma) · RF-46 Horas de servicio ·
   RF-47 Observaciones · RF-48 Rangos mín/máx · RF-49 Identificación fuera de rango ·
   RF-50 Acciones correctivas · RF-51 Historial · RF-52 Consulta histórica ·
-  RF-53 Reporte de planta · RF-54 Exportación de planta.
+  RF-53 Reporte de planta · RF-54 Exportación de planta ·
+  RF-55 Estado operativo por parte (En funcionamiento / Afectación / Fuera de funcionamiento,
+  con nota e historial) · RF-56 Reporte de estado actual e historial de cambios.
 
 ### Módulo de consultas y reportes
 - Históricos filtrables por fecha/sector/parámetro + exportación (CSV/Excel/PDF).
@@ -70,11 +72,18 @@ RNF-17 Compatibilidad (navegadores modernos) · RNF-18 Documentación · RNF-19 
 12. Info de planta con mayores restricciones de acceso.
 13. Modificaciones/eliminaciones restringidas a autorizados.
 14. Históricos se conservan para consulta y reportes.
+15. El estado operativo de la planta se registra por parte/etapa del diagrama con tres
+    valores: En funcionamiento, Afectación y Fuera de funcionamiento.
+16. Cada cambio de estado genera un evento nuevo con fecha, hora, responsable y nota;
+    los eventos no se editan ni se eliminan.
+17. La nota es obligatoria cuando el estado es Afectación o Fuera de funcionamiento.
+18. Al iniciar, las partes se asumen En funcionamiento y el administrador puede
+    agregar, renombrar, reordenar o desactivar partes del diagrama.
 
 ## 5. Priorización
 - **Alta:** auth/usuarios, inventario básico, entradas/salidas, suscriptores/medidores,
-  lecturas, histórico de consumos, parámetros de planta, dosificaciones, actividades de
-  planta, históricos, control de permisos.
+  lecturas, histórico de consumos, parámetros de planta, estado operativo por partes,
+  dosificaciones, actividades de planta, históricos, control de permisos.
 - **Media:** alertas de inventario/parámetros, reportes consolidados, exportación, acciones
   correctivas, consulta por sector, gestión de químicos.
 - **Futuro:** niveles de tanques, estado de red, PQR, presiones, purgas, integración con

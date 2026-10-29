@@ -16,6 +16,11 @@ export const usePlantaStore = defineStore('planta', {
     horas: [],
     horasTotal: 0,
     horasGrafico: [],
+    // Estado operativo de la planta
+    componentes: [],
+    componentesAdmin: [],
+    estados: [],
+    estadosTotal: 0,
     // Responsables ligeros para selects (no paginados)
     usuariosOpciones: [],
     // Contador de peticiones en curso (skeleton mientras haya alguna)
@@ -115,6 +120,52 @@ export const usePlantaStore = defineStore('planta', {
     async loadUsuariosOpciones() {
       const { data } = await client.get('/usuarios/opciones')
       this.usuariosOpciones = data
+    },
+
+    // -------------------- Estado operativo del diagrama --------------------
+    async loadComponentes() {
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/planta/componentes')
+        this.componentes = data
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
+    },
+    async loadComponentesAdmin() {
+      this.cargas++
+      this.error = null
+      try {
+        const { data } = await client.get('/planta/componentes', { params: { incluir_inactivos: true } })
+        this.componentesAdmin = data
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
+    },
+    async createComponente(p) {
+      const { data } = await client.post('/planta/componentes', p)
+      return data
+    },
+    async updateComponente(id, p) {
+      const { data } = await client.patch(`/planta/componentes/${id}`, p)
+      return data
+    },
+    async reordenarComponentes(ids) {
+      const { data } = await client.patch('/planta/componentes/orden', { ids })
+      this.componentesAdmin = data
+      return data
+    },
+    async registrarEstadoComponente(id, p) {
+      const { data } = await client.post(`/planta/componentes/${id}/estado`, p)
+      return data
+    },
+    async loadEstados(filtros = {}, page = 1, orden = '', dir = 'desc') {
+      this.cargas++
+      this.error = null
+      try {
+        const params = { ...filtros, page, page_size: PAGE_SIZE }
+        if (orden) { params.orden = orden; params.dir_orden = dir }
+        const { data } = await client.get('/planta/estados', { params })
+        this.estados = data.items
+        this.estadosTotal = data.total
+      } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
   },
 })

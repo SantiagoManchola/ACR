@@ -360,4 +360,58 @@ CREATE TABLE IF NOT EXISTS horas_servicio (
   CONSTRAINT fk_hs_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Diagrama lineal de la planta: catálogo de partes y su historial de estados.
+-- El estado actual es el último evento de `estados_componente_planta`.
+CREATE TABLE IF NOT EXISTS componentes_planta (
+  id           INT AUTO_INCREMENT PRIMARY KEY,
+  nombre       VARCHAR(100) NOT NULL,
+  descripcion  VARCHAR(255),
+  orden        INT NOT NULL DEFAULT 0,
+  estado       ENUM('activo','inactivo') NOT NULL DEFAULT 'activo',
+  created_by   INT,
+  updated_by   INT,
+  created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_componente_nombre (nombre),
+  KEY idx_comp_orden (orden),
+  CONSTRAINT fk_comp_created FOREIGN KEY (created_by) REFERENCES usuarios(id) ON DELETE SET NULL,
+  CONSTRAINT fk_comp_updated FOREIGN KEY (updated_by) REFERENCES usuarios(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS estados_componente_planta (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  componente_id  INT NOT NULL,
+  estado         ENUM('funcionando','afectacion','fuera_servicio') NOT NULL,
+  nota           TEXT,
+  fecha          DATE NOT NULL,
+  hora           TIME,
+  responsable_id INT,
+  created_by     INT,
+  updated_by     INT,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_estado_comp       (componente_id),
+  KEY idx_estado_comp_fecha (componente_id, fecha, hora),
+  KEY idx_estado_fecha      (fecha, estado),
+  CONSTRAINT fk_estado_comp    FOREIGN KEY (componente_id) REFERENCES componentes_planta(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_estado_resp    FOREIGN KEY (responsable_id) REFERENCES usuarios(id)            ON DELETE SET NULL,
+  CONSTRAINT fk_estado_created FOREIGN KEY (created_by)    REFERENCES usuarios(id)            ON DELETE SET NULL,
+  CONSTRAINT fk_estado_updated FOREIGN KEY (updated_by)    REFERENCES usuarios(id)            ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Partes iniciales del diagrama. El admin puede agregar, renombrar,
+-- reordenar o desactivarlas desde el CMS. Los estados iniciales se crean
+-- con `python seed.py` (o la migración incremental 010).
+INSERT IGNORE INTO componentes_planta (nombre, orden, estado) VALUES
+  ('Fuente de abastecimiento quebrada', 1, 'activo'),
+  ('Bocatoma', 2, 'activo'),
+  ('Red de aducción', 3, 'activo'),
+  ('Desarenador', 4, 'activo'),
+  ('Sistema de coagulación', 5, 'activo'),
+  ('Tanque de floculación', 6, 'activo'),
+  ('Sedimentador', 7, 'activo'),
+  ('Red de conducción', 8, 'activo'),
+  ('Sistema de desinfección', 9, 'activo'),
+  ('Tanques de almacenamiento', 10, 'activo');
+
 SET FOREIGN_KEY_CHECKS = 1;

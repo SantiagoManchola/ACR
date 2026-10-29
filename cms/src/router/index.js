@@ -9,6 +9,7 @@ export const MODULOS = {
   inventario: { label: 'Inventario', icon: 'inventory', roles: ['admin', 'administrativo'] },
   micromedidores: { label: 'Micromedidores', icon: 'gauge', roles: ['admin', 'administrativo', 'fontanero'] },
   planta: { label: 'Planta de tratamiento', icon: 'drop', roles: ['admin', 'operario'] },
+  reportes: { label: 'Reportes', icon: 'report', roles: ['admin', 'administrativo'] },
   usuarios: { label: 'Usuarios y roles', icon: 'users', roles: ['admin'] },
 }
 
@@ -33,8 +34,9 @@ const routes = [
       { path: 'inventario/:tab', name: 'inventario', component: () => import('../views/InventarioView.vue') },
       { path: 'micromedidores', redirect: { name: 'micromedidores', params: { tab: 'suscriptores' } } },
       { path: 'micromedidores/:tab', name: 'micromedidores', component: () => import('../views/MicromedidoresView.vue') },
-      { path: 'planta', redirect: { name: 'planta', params: { tab: 'parametros' } } },
+      { path: 'planta', redirect: { name: 'planta', params: { tab: 'estado' } } },
       { path: 'planta/:tab', name: 'planta', component: () => import('../views/PlantaView.vue') },
+      { path: 'reportes', name: 'reportes', component: () => import('../views/ReportesView.vue') },
       { path: 'usuarios', redirect: { name: 'usuarios', params: { tab: 'usuarios' } } },
       { path: 'usuarios/:tab', name: 'usuarios', component: () => import('../views/UsuariosView.vue'), meta: { roles: ['admin'] } },
     ],

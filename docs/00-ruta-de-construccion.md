@@ -47,7 +47,8 @@
    - `categorias_inventario`, `elementos_inventario`, `movimientos_inventario`.
    - `suscriptores`, `micromedidores`, `lecturas`, `novedades_lectura`.
    - `parametros_planta`, `rangos_parametros`, `dosificaciones`,
-      `actividades_planta`, `horas_servicio`. Los químicos viven en
+      `actividades_planta`, `horas_servicio`, `componentes_planta`,
+      `estados_componente_planta`. Los químicos viven en
       `elementos_inventario` (categoría tipo `insumo`).
    - Tablas de auditoría donde aplique.
 3. Definir relaciones, claves, índices y `created_by`/`updated_by`/`created_at`.
@@ -94,9 +95,9 @@ Pasos realizados:
    usando `GET /auth/me`.
 5. Módulos: Inventario (elementos, entradas/salidas, movimientos, alertas),
    Micromedidores (suscriptores, medidores, lecturas, consumo por sector),
-   Planta (parámetros, mediciones con `fuera_rango`, dosificaciones, actividades,
-   horas de servicio), Reportes (filtros + exportar CSV/XLSX/PDF) y
-   Usuarios/Roles (admin).
+   Planta (estado operativo por partes con diagrama, parámetros, mediciones con
+   `fuera_rango`, dosificaciones, actividades, horas de servicio), Reportes
+   (filtros + exportar CSV/XLSX/PDF) y Usuarios/Roles (admin).
 6. UI responsive para uso en campo (sidebar colapsable en móvil).
 7. Indicadores/alertas: existencias bajo mínimo (rojo/ámbar) y mediciones fuera de rango.
 

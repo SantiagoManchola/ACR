@@ -2,7 +2,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import client from '../api/http'
 import { useAuthStore } from '../stores/auth'
+import { usePlantaStore } from '../stores/planta'
 import { hoyColombia, formatoOptions } from '../utils/format'
+import { ESTADOS_PLANTA_OPTIONS } from '../utils/estadoPlanta'
 import { debounce } from '../utils/debounce'
 import DataTable from '../components/DataTable.vue'
 import BaseAlert from '../components/BaseAlert.vue'
@@ -11,10 +13,13 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import BaseInput from '../components/BaseInput.vue'
 
 const auth = useAuthStore()
+const planta = usePlantaStore()
 const modulo = ref('inventario')
 const formato = ref('csv')
 const sector = ref('')
 const fueraRango = ref('')
+const componenteId = ref('')
+const estadoComponente = ref('')
 const fechaInicio = ref(hoyColombia())
 const fechaFin = ref(hoyColombia())
 const preview = ref([])
@@ -24,30 +29,43 @@ const loading = ref(false)
 const error = ref('')
 const ok = ref('')
 
-const modulos = [
-  { id: 'inventario', endpoint: '/reportes/inventario', tipo: 'elementos', label: 'Inventario', cols: ['tipo', 'nombre', 'categoria', 'ubicacion', 'cantidad', 'unidad', 'minimo', 'valor', 'estado'] },
-  { id: 'consumo', endpoint: '/reportes/micromedidores', tipo: 'lecturas', label: 'Consumo micromedidores', cols: ['fecha', 'hora', 'suscriptor', 'medidor', 'lectura', 'consumo', 'promedio_usado', 'irregular', 'novedad'] },
-  { id: 'planta', endpoint: '/reportes/planta', tipo: 'mediciones', label: 'Planta de tratamiento', cols: ['fecha', 'hora', 'parametro', 'valor', 'fuera_rango', 'accion_correctiva'] },
+const modulosBase = [
+  { id: 'inventario', endpoint: '/reportes/inventario', tipo: 'elementos', label: 'Inventario', roles: ['admin', 'administrativo', 'operario'], cols: ['tipo', 'nombre', 'categoria', 'ubicacion', 'cantidad', 'unidad', 'minimo', 'valor', 'estado'] },
+  { id: 'consumo', endpoint: '/reportes/micromedidores', tipo: 'lecturas', label: 'Consumo micromedidores', roles: ['admin', 'administrativo', 'fontanero'], cols: ['fecha', 'hora', 'suscriptor', 'medidor', 'lectura', 'consumo', 'promedio_usado', 'irregular', 'novedad'] },
+  { id: 'planta', endpoint: '/reportes/planta', tipo: 'mediciones', label: 'Planta de tratamiento', roles: ['admin'], cols: ['fecha', 'hora', 'parametro', 'valor', 'fuera_rango', 'accion_correctiva'] },
+  { id: 'planta-estado', endpoint: '/reportes/planta', tipo: 'estado-actual', label: 'Planta — estado actual', roles: ['admin'], cols: ['componente', 'estado', 'nota', 'fecha', 'hora', 'responsable'] },
+  { id: 'planta-historial', endpoint: '/reportes/planta', tipo: 'historial-estados', label: 'Planta — historial de estados', roles: ['admin'], cols: ['fecha', 'hora', 'componente', 'estado', 'nota', 'responsable'] },
 ]
-const moduloOptions = computed(() => modulos.map((m) => ({ value: m.id, label: m.label })))
+const modulos = computed(() => modulosBase.filter((m) => !m.roles || m.roles.includes(auth.rol)))
+const moduloOptions = computed(() => modulos.value.map((m) => ({ value: m.id, label: m.label })))
 const fueraRangoOptions = [
   { value: 'true', label: 'Solo fuera de rango' },
   { value: 'false', label: 'Solo en rango' },
 ]
+const estadoOptions = computed(() => ESTADOS_PLANTA_OPTIONS.map((e) => ({ value: e.value, label: e.label })))
+const componenteOptions = computed(() => planta.componentes.map((c) => ({ value: c.id, label: c.nombre })))
+const esReporteEstado = computed(() => ['planta-estado', 'planta-historial'].includes(modulo.value))
 
-const moduloActual = computed(() => modulos.find((m) => m.id === modulo.value) || modulos[0])
+const moduloActual = computed(() => modulos.value.find((m) => m.id === modulo.value) || modulos.value[0])
+watch(modulos, (lista) => {
+  if (lista.length && !lista.some((m) => m.id === modulo.value)) modulo.value = lista[0].id
+}, { immediate: true })
 
 function buildParams() {
   const p = { tipo: moduloActual.value.tipo }
   if (modulo.value === 'consumo' && sector.value.trim()) p.sector = sector.value.trim()
   if (modulo.value === 'planta' && fueraRango.value !== '') p.fuera_rango = fueraRango.value === 'true'
+  if (esReporteEstado.value) {
+    if (componenteId.value) p.componente_id = componenteId.value
+    if (estadoComponente.value) p.estado = estadoComponente.value
+  }
   if (fechaInicio.value) p.fecha_inicio = fechaInicio.value
   if (fechaFin.value) p.fecha_fin = fechaFin.value
   return p
 }
 
 function colLabel(c) {
-  const map = { nombre: 'Nombre', categoria: 'Categoría', ubicacion: 'Ubicación', cantidad: 'Cantidad', unidad: 'Unidad', minimo: 'Mínimo', estado: 'Estado', fecha: 'Fecha', hora: 'Hora', sector: 'Sector', suscriptor: 'Suscriptor', medidor: 'Medidor', lectura: 'Lectura', consumo: 'Consumo', promedio_usado: 'Estimada (promedio)', irregular: 'Irregular', novedad: 'Novedad', parametro: 'Parámetro', valor: 'Valor', fuera_rango: 'Fuera de rango', accion_correctiva: 'Acción correctiva', tipo: 'Tipo', direccion: 'Dirección', codigo_usuario: 'Código usuario', codigo_facturacion: 'Código facturación', identificacion: 'Identificación', tipo_usuario: 'Tipo de usuario', serial: 'Serial', fecha_instalacion: 'Instalación', insumo: 'Insumo', tasa: 'Tasa', unidad_tasa: 'Unidad tasa', observaciones: 'Observaciones', responsable: 'Responsable', horas: 'Horas', foto_url: 'Foto', valor: 'Valor' }
+  const map = { nombre: 'Nombre', categoria: 'Categoría', ubicacion: 'Ubicación', cantidad: 'Cantidad', unidad: 'Unidad', minimo: 'Mínimo', estado: 'Estado', fecha: 'Fecha', hora: 'Hora', sector: 'Sector', suscriptor: 'Suscriptor', medidor: 'Medidor', lectura: 'Lectura', consumo: 'Consumo', promedio_usado: 'Estimada (promedio)', irregular: 'Irregular', novedad: 'Novedad', parametro: 'Parámetro', valor: 'Valor', fuera_rango: 'Fuera de rango', accion_correctiva: 'Acción correctiva', tipo: 'Tipo', direccion: 'Dirección', codigo_usuario: 'Código usuario', codigo_facturacion: 'Código facturación', identificacion: 'Identificación', tipo_usuario: 'Tipo de usuario', serial: 'Serial', fecha_instalacion: 'Instalación', insumo: 'Insumo', tasa: 'Tasa', unidad_tasa: 'Unidad tasa', observaciones: 'Observaciones', responsable: 'Responsable', horas: 'Horas', foto_url: 'Foto', valor: 'Valor', componente: 'Componente', nota: 'Nota' }
   return map[c] || c
 }
 
@@ -86,13 +104,16 @@ async function exportar() {
   } finally { loading.value = false }
 }
 
-const puedeVer = computed(() => ['admin', 'administrativo', 'operario'].includes(auth.rol))
+const puedeVer = computed(() => ['admin', 'administrativo'].includes(auth.rol))
 
 /* La vista previa se regenera sola (debounce) al cambiar módulo, filtros o fechas */
 const verPreviewDeb = debounce(() => verPreview(), 400)
-watch([modulo, sector, fueraRango, fechaInicio, fechaFin], () => { if (puedeVer.value) verPreviewDeb() })
+watch([modulo, sector, fueraRango, componenteId, estadoComponente, fechaInicio, fechaFin], () => { if (puedeVer.value) verPreviewDeb() })
 /* Primer render: arranca la vista previa de una vez (skeleton inmediato) */
-onMounted(() => { if (puedeVer.value) verPreview() })
+onMounted(() => {
+  if (puedeVer.value) verPreview()
+  if (auth.rol === 'admin') planta.loadComponentes()
+})
 </script>
 
 <template>
@@ -117,11 +138,19 @@ onMounted(() => { if (puedeVer.value) verPreview() })
           <label>Estado</label>
           <SearchableSelect v-model="fueraRango" :options="fueraRangoOptions" placeholder="Todos" clearable />
         </div>
-        <div class="field" style="margin:0">
+        <div class="field" style="margin:0" v-if="esReporteEstado">
+          <label>Parte</label>
+          <SearchableSelect v-model="componenteId" :options="componenteOptions" placeholder="Todas" clearable />
+        </div>
+        <div class="field" style="margin:0" v-if="esReporteEstado">
+          <label>Estado</label>
+          <SearchableSelect v-model="estadoComponente" :options="estadoOptions" placeholder="Todos" clearable />
+        </div>
+        <div class="field" style="margin:0" v-if="modulo !== 'planta-estado'">
           <label>Desde</label>
           <BaseInput v-model="fechaInicio" type="date" />
         </div>
-        <div class="field" style="margin:0">
+        <div class="field" style="margin:0" v-if="modulo !== 'planta-estado'">
           <label>Hasta</label>
           <BaseInput v-model="fechaFin" type="date" />
         </div>

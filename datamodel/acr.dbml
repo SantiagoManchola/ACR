@@ -49,6 +49,13 @@ enum categoria_tipo {
   insumo
 }
 
+// Estado operativo de cada parte del diagrama de la planta.
+enum estado_operativo_componente {
+  funcionando
+  afectacion
+  fuera_servicio
+}
+
 // =============================================================
 // MÓDULO DE AUTENTICACIÓN Y ADMINISTRACIÓN
 // RF-01 Autenticación · RF-02 Usuarios · RF-03 Roles · RF-04 Permisos
@@ -361,5 +368,39 @@ Table horas_servicio {
   updated_at        timestamptz [not null, default: `now()`]
   indexes {
     (fecha)
+  }
+}
+
+// Diagrama lineal del estado operativo (RF-55/RF-56).
+Table componentes_planta {
+  id                serial [pk]
+  nombre            varchar(100) [not null, unique]
+  descripcion       varchar(255)
+  orden             integer [not null, default: 0]
+  estado            estado_registro [not null, default: 'activo']
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (orden)
+  }
+}
+
+Table estados_componente_planta {
+  id                serial [pk]
+  componente_id     integer [not null, ref: > componentes_planta.id]
+  estado            estado_operativo_componente [not null]
+  nota              text
+  fecha             date [not null]
+  hora              time
+  responsable_id    integer [ref: > usuarios.id]
+  created_by        integer [ref: > usuarios.id]
+  updated_by        integer [ref: > usuarios.id]
+  created_at        timestamptz [not null, default: `now()`]
+  updated_at        timestamptz [not null, default: `now()`]
+  indexes {
+    (componente_id, fecha, hora)
+    (fecha, estado)
   }
 }

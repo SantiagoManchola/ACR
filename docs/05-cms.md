@@ -36,6 +36,7 @@ cms/
     router/index.js         # rutas por rol + guardas (meta.roles / MODULOS)
     stores/                 # pinia: auth, inventario, micromedidores, planta, usuarios
     components/             # AppLayout, AppIcon, DataTable, BaseModal, BaseAlert, AppState
+                           # components/planta/ (diagrama, modal de estado, configuración)
     views/                  # Login, Dashboard, Inventario, Micromedidores, Planta,
                            # Reportes, Usuarios, NotFound
     styles/theme.css        # paleta y componentes ACR
@@ -48,8 +49,8 @@ cms/
 | Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/refresh` |
 | Inventario | `/inventario/categorias`, `/inventario` (GET/POST/PATCH/DELETE), `/inventario/{id}/entrada|salida`, `/inventario/movimientos`, `/inventario/alertas` |
 | Micromedidores | `/suscriptores`, `/micromedidores`, `/lecturas`, `/consumo/sector/{sector}` |
-| Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio` (los químicos son insumos dentro de `/inventario`) |
-| Reportes | `/reportes/inventario`, `/reportes/consumo`, `/reportes/planta` (`?formato=csv|xlsx|pdf`) |
+| Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio`, `/planta/componentes`, `/planta/estados` (los químicos son insumos dentro de `/inventario`) |
+| Reportes | `/reportes/inventario`, `/reportes/micromedidores`, `/reportes/planta` (`?formato=csv|xlsx|pdf`; incluye `tipo=estado-actual` y `tipo=historial-estados`) |
 | Usuarios/Roles | `/usuarios`, `/usuarios/{id}`, `/usuarios/roles` |
 
 ## Control de acceso por rol
@@ -60,8 +61,8 @@ ocultan rutas/menús según el rol:
 | Rol | Módulos visibles |
 |---|---|
 | `admin` | Inventario · Micromedidores · Planta · Reportes · **Usuarios y roles** |
-| `administrativo` | Inventario · Micromedidores · Planta · Reportes |
-| `operario` | Planta · Reportes |
+| `administrativo` | Inventario · Micromedidores · Reportes |
+| `operario` | Planta (sin sección de reportes) |
 | `fontanero` | Micromedidores (registro de lecturas) |
 
 Rutas protegidas con `meta.roles`; ante 401 el interceptor limpia el token y
@@ -77,12 +78,19 @@ redirige a `/login`. La info de planta queda oculta para quien no tiene permiso
 4. **Micromedidores**: CRUD suscriptores y medidores, registro de lectura (con opción
    "lectura estimada / usar promedio histórico" y campo novedad), listado de lecturas,
    consulta por sector y marcado de irregulares.
-5. **Planta**: parámetros (cruda/tratada) con rangos min/máx, mediciones con detección
-   visual `fuera_rango` (rojo) y acción correctiva, dosificaciones de químicos,
-   actividades (limpieza/desinfección/tanques/bocatoma) y horas de servicio, más la
-   vista de mediciones fuera de rango.
-6. **Reportes**: selector de módulo + filtros (fecha/sector/estado) y exportación
-   **CSV / Excel / PDF** vía `GET /reportes/...?formato=`.
+5. **Planta**: pestaña principal **Estado de la planta** con diagrama lineal,
+   semáforo verde/amarillo/rojo, actualización de estado con nota obligatoria en
+   afectación/fuera de servicio, historial de cambios y configuración de partes
+   para el admin. El diagrama compacto se mantiene fijo entre las demás pestañas
+   solo para el admin; el operario lo consulta en la pestaña Estado de la planta.
+   Además: parámetros
+   (cruda/tratada) con rangos min/máx, mediciones con detección visual `fuera_rango`
+   (rojo) y acción correctiva, dosificaciones de químicos, actividades
+   (limpieza/desinfección/tanques/bocatoma) y horas de servicio, más la vista de
+   mediciones fuera de rango.
+6. **Reportes**: selector de módulo + filtros (fecha/sector/estado/parte) y exportación
+   **CSV / Excel / PDF** vía `GET /reportes/...?formato=`, incluido el estado actual y
+   el historial de estados de la planta.
 7. **Usuarios/Roles** (admin): listar/crear/desactivar usuarios y crear roles.
 8. Estados de UI: loading, vacío y error; responsive para uso en campo (móvil).
 
@@ -100,3 +108,7 @@ UI en español, acorde a Acuaricaurte (Ibagué, Tolima).
 - [x] Paleta azul/blanco aplicada y responsive en móvil.
 - [x] Menús y acciones restringidos por rol.
 - [x] Alertas de inventario y parámetros fuera de rango visibles.
+- [x] Diagrama de estado editable por admin/operario con nota obligatoria en
+  afectación y fuera de funcionamiento; el resumen fijo entre pestañas es solo admin.
+- [x] Admin puede agregar, renombrar, reordenar y desactivar partes del diagrama.
+- [x] Reportes de estado actual e historial de estados exportables en CSV/XLSX/PDF.

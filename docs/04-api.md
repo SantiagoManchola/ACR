@@ -51,6 +51,8 @@ FLUSH PRIVILEGES;
 
 ```bash
 mysql -u acr_user -p acr < datamodel/migrations/acr_migrations.sql
+# Si la BD ya existía antes del estado operativo de la planta:
+mysql -u acr_user -p acr < datamodel/migrations/acr_migrations_010_estado_planta.sql
 ```
 
 La conexión se configura con la variable de entorno `DATABASE_URL`
@@ -60,7 +62,7 @@ La conexión se configura con la variable de entorno `DATABASE_URL`
 DATABASE_URL=mysql+pymysql://acr_user:acr_password@localhost:3306/acr
 ```
 
-> El esquema (16 tablas) vive en `datamodel/migrations/acr_migrations.sql`
+> El esquema (21 tablas) vive en `datamodel/migrations/acr_migrations.sql`
 > y su diseño en `datamodel/acr.dbml` (Fase 2). El API no crea las tablas:
 > se ejecuta el SQL primero.
 
@@ -92,10 +94,19 @@ uvicorn app.main:app --reload
 - **Planta:** CRUD `parametros_planta`, `POST /mediciones` (marca fuera_rango),
   `POST /dosificaciones`, `POST /actividades`, `POST /horas-servicio`,
   `GET /mediciones/fuera-rango`.
+- **Estado operativo de la planta:** `GET /planta/componentes` (partes activas con
+  estado actual; `incluir_inactivos=true` solo admin), `POST/PATCH /planta/componentes`
+  (solo admin), `PATCH /planta/componentes/orden` (solo admin),
+  `POST /planta/componentes/{id}/estado` (admin/operario; nota obligatoria para
+  afectación y fuera de servicio) y `GET /planta/estados` (historial paginado).
 - **Reportes:** `GET /reportes/inventario`, `/reportes/micromedidores`
   (`tipo=micromedidores` incluye la condición del medidor y acepta
   `orden=suscriptor|serial` + `dir_orden=asc|desc` para agrupar por suscriptor
   o imprimir por serial), `/reportes/planta` con filtros y `?formato=csv|xlsx|pdf`.
+  `tipo=estado-actual` exporta el panorama del día y `tipo=historial-estados` el
+  historial filtrable por `componente_id`, `estado`, `fecha_inicio` y `fecha_fin`.
+  Los reportes de planta son solo para el rol admin; el operario consulta el
+  historial de estados en la pestaña Estado de la planta.
 - **Facturación desde plantilla:** `POST /facturacion/previsualizar` y
   `POST /facturacion/generar` reciben `multipart/form-data` con archivo `.xlsx`,
   mes/año de factura y rango de fechas de lectura. Acceso: admin y administrativo.
