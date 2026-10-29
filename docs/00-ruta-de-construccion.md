@@ -96,8 +96,8 @@ Pasos realizados:
 5. Módulos: Inventario (elementos, entradas/salidas, movimientos, alertas),
    Micromedidores (suscriptores, medidores, lecturas, consumo por sector),
    Planta (estado operativo por partes con diagrama, parámetros, mediciones con
-   `fuera_rango`, dosificaciones, actividades, horas de servicio), Reportes
-   (filtros + exportar CSV/XLSX/PDF) y Usuarios/Roles (admin).
+   `fuera_rango`, dosificaciones, actividades, horas de servicio), exportación
+   CSV/XLSX/PDF desde cada módulo y Usuarios/Roles (admin).
 6. UI responsive para uso en campo (sidebar colapsable en móvil).
 7. Indicadores/alertas: existencias bajo mínimo (rojo/ámbar) y mediciones fuera de rango.
 

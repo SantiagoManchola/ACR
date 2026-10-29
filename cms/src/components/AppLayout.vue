@@ -22,7 +22,6 @@ const linksOperacion = [
   { to: '/inventario/elementos', key: 'inventario' },
   { to: '/micromedidores/suscriptores', key: 'micromedidores' },
   { to: '/planta/estado', key: 'planta' },
-  { to: '/reportes', key: 'reportes' },
 ]
 const linksAdmin = [{ to: '/usuarios/usuarios', key: 'usuarios' }]
 const puedeVer = (key) => (MODULOS[key]?.roles || []).includes(auth.rol)

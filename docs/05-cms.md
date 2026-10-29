@@ -38,7 +38,7 @@ cms/
     components/             # AppLayout, AppIcon, DataTable, BaseModal, BaseAlert, AppState
                            # components/planta/ (diagrama, modal de estado, configuración)
     views/                  # Login, Dashboard, Inventario, Micromedidores, Planta,
-                           # Reportes, Usuarios, NotFound
+                           # Usuarios, NotFound
     styles/theme.css        # paleta y componentes ACR
 ```
 
@@ -50,7 +50,7 @@ cms/
 | Inventario | `/inventario/categorias`, `/inventario` (GET/POST/PATCH/DELETE), `/inventario/{id}/entrada|salida`, `/inventario/movimientos`, `/inventario/alertas` |
 | Micromedidores | `/suscriptores`, `/micromedidores`, `/lecturas`, `/consumo/sector/{sector}` |
 | Planta | `/planta/parametros`, `/planta/mediciones`, `/planta/mediciones/fuera-rango`, `/planta/dosificaciones`, `/planta/actividades`, `/planta/horas-servicio`, `/planta/componentes`, `/planta/estados` (los químicos son insumos dentro de `/inventario`) |
-| Reportes | `/reportes/inventario`, `/reportes/micromedidores`, `/reportes/planta` (`?formato=csv|xlsx|pdf`; incluye `tipo=estado-actual` y `tipo=historial-estados`) |
+| Exportaciones por módulo | `/reportes/inventario`, `/reportes/micromedidores`, `/reportes/planta` (`?formato=csv|xlsx|pdf`; incluye `tipo=estado-actual` y `tipo=historial-estados`), usados por los botones de cada vista |
 | Usuarios/Roles | `/usuarios`, `/usuarios/{id}`, `/usuarios/roles` |
 
 ## Control de acceso por rol
@@ -60,9 +60,9 @@ ocultan rutas/menús según el rol:
 
 | Rol | Módulos visibles |
 |---|---|
-| `admin` | Inventario · Micromedidores · Planta · Reportes · **Usuarios y roles** |
-| `administrativo` | Inventario · Micromedidores · Reportes |
-| `operario` | Planta (sin sección de reportes) |
+| `admin` | Inventario · Micromedidores · Planta · **Usuarios y roles** |
+| `administrativo` | Inventario · Micromedidores |
+| `operario` | Planta |
 | `fontanero` | Micromedidores (registro de lecturas) |
 
 Rutas protegidas con `meta.roles`; ante 401 el interceptor limpia el token y
@@ -88,9 +88,10 @@ redirige a `/login`. La info de planta queda oculta para quien no tiene permiso
    (rojo) y acción correctiva, dosificaciones de químicos, actividades
    (limpieza/desinfección/tanques/bocatoma) y horas de servicio, más la vista de
    mediciones fuera de rango.
-6. **Reportes**: selector de módulo + filtros (fecha/sector/estado/parte) y exportación
-   **CSV / Excel / PDF** vía `GET /reportes/...?formato=`, incluido el estado actual y
-   el historial de estados de la planta.
+6. **Exportación desde cada módulo**: botones de descarga **CSV / Excel / PDF** con
+   los filtros de la vista actual. No hay una vista central de Reportes; el admin
+   puede generar el estado actual y el historial de estados desde Planta, y cada
+   módulo conserva su propia exportación.
 7. **Usuarios/Roles** (admin): listar/crear/desactivar usuarios y crear roles.
 8. Estados de UI: loading, vacío y error; responsive para uso en campo (móvil).
 
@@ -111,4 +112,5 @@ UI en español, acorde a Acuaricaurte (Ibagué, Tolima).
 - [x] Diagrama de estado editable por admin/operario con nota obligatoria en
   afectación y fuera de funcionamiento; el resumen fijo entre pestañas es solo admin.
 - [x] Admin puede agregar, renombrar, reordenar y desactivar partes del diagrama.
-- [x] Reportes de estado actual e historial de estados exportables en CSV/XLSX/PDF.
+- [x] Estado actual e historial de estados exportables en CSV/XLSX/PDF desde
+  la pestaña Estado de la planta (admin).

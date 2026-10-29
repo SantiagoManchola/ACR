@@ -87,14 +87,14 @@
   desactivar partes del diagrama. El operario solo puede cambiar estados y notas.
 - La información de la planta queda restringida a roles autorizados.
 
-## 6. Reportes (administrador y personal administrativo)
+## 6. Exportación de reportes
 
-- Menú *Reportes* → elige módulo (Inventario / Consumo / Planta / estado actual /
-  historial de estados), filtra por fecha, sector, parte o estado y pulsa *Descargar*.
-- El administrador también puede generar el reporte directamente desde
-  *Planta → Estado de la planta*: **Reporte estado actual** o **Historial**.
-- El operario de planta no tiene sección de reportes: su trabajo se concentra en
-  registrar estados, notas y la operación diaria.
+- No hay un menú central de Reportes: cada módulo tiene su propio botón de descarga
+  con los filtros de la vista actual (CSV / Excel / PDF).
+- En *Planta → Estado de la planta*, el administrador puede generar
+  **Reporte estado actual** o **Historial**.
+- El operario de planta no genera reportes: su trabajo se concentra en registrar
+  estados, notas y la operación diaria.
 
 ## 7. Buenas prácticas
 
