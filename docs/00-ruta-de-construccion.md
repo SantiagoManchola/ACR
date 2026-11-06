@@ -14,6 +14,7 @@
 | 2 | Modelo de datos | Diagrama DBML + SQL | `datamodel/` | `agents/datamodel-agent.md` |
 | 3 | API | Backend FastAPI + MySQL | `api/` | `agents/api-agent.md` |
 | 4 | CMS | Panel web (SPA) | `cms/` | `agents/cms-agent.md` |
+| 5 | Sitio web público | Astro 7 + contenido administrable | `web/` | `agents/web-agent.md` |
 
 ---
 
@@ -102,6 +103,34 @@ Pasos realizados:
 7. Indicadores/alertas: existencias bajo mínimo (rojo/ámbar) y mediciones fuera de rango.
 
 Ver detalle en `docs/05-cms.md` y `cms/README.md`.
+
+## Paso 5 — Sitio web público (Fase 5) — 🚧 EN DESARROLLO
+
+**Responsable:** `agents/web-agent.md`. **Estado:** base construida en `web/` con Astro 7,
+páginas, sistema de diseño, SEO, RSS, sitemap y búsqueda Pagefind. Usa contenido local de
+demostración hasta conectar el API público y el módulo de contenido del CMS.
+
+Pasos:
+
+1. Leer `docs/06-sitio-web.md`, `docs/07-herramientas-y-referencias.md` y el contrato del
+   API público.
+2. Reemplazar activos provisionales: logo, fotos, WhatsApp, redes sociales, dirección y
+   horario; validar textos y contactos con la organización.
+3. Implementar en la Fase 3 los endpoints `/publico/*` y `/contenido/*`, las tablas de
+   noticias, páginas y configuración, y la sanitización de HTML.
+4. Agregar en la Fase 4 el módulo **Contenido** (Noticias, Categorías, Páginas,
+   Configuración) con editor Tiptap y subida de imágenes a R2.
+5. Configurar `ACR_API_URL` y `R2_PUBLIC_HOST`; construir el sitio con datos reales.
+6. Configurar staging, deploy hook de Cloudflare y rebuild programado.
+7. Ejecutar QA de accesibilidad, performance, SEO y contenido; capacitar a quien publicará.
+8. Actualizar `docs/06-sitio-web.md` marcando los pendientes completados.
+
+Criterio de aceptación: el sitio público funciona en móvil y escritorio, las noticias y
+páginas se administran desde el CMS, el deploy es automático, y se cumplen los presupuestos
+de performance, accesibilidad y SEO.
+
+Ver detalle en `docs/06-sitio-web.md`, `docs/07-herramientas-y-referencias.md` y
+`web/README.md`.
 
 ---
 

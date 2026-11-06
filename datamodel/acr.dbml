@@ -239,7 +239,7 @@ Table micromedidores {
   id                serial [pk]
   serial            varchar(50) [not null, unique] // RF-23
   tipo              varchar(50) // RF-23
-  suscriptor_id     integer [ref: > suscriptores.id] // RF-24 (un suscriptor tiene un medidor; no cambia de suscriptor)
+  suscriptor_id     integer [ref: > suscriptores.id] // RF-24 (asignación corregible por admin/administrativo; mueve las lecturas y deja auditoría)
   direccion         varchar(200) // RF-23
   fecha_instalacion date // RF-23
   condicion         condicion_medidor [not null, default: 'bueno'] // bueno/defectuoso/frenado (automático)
@@ -275,6 +275,22 @@ Table lecturas {
     (fecha, micromedidor_id)
     (suscriptor_id)
     (micromedidor_id)
+  }
+}
+
+Table reasignaciones_micromedidor {
+  id                      serial [pk]
+  micromedidor_id         integer [not null, ref: > micromedidores.id]
+  suscriptor_anterior_id  integer [ref: > suscriptores.id]
+  suscriptor_nuevo_id     integer [ref: > suscriptores.id]
+  lecturas_movidas        integer [not null, default: 0] // cuántas lecturas se movieron al nuevo suscriptor
+  motivo                  varchar(255) // motivo opcional de la corrección
+  created_by              integer [ref: > usuarios.id]
+  updated_by              integer [ref: > usuarios.id]
+  created_at              timestamptz [not null, default: `now()`]
+  updated_at              timestamptz [not null, default: `now()`]
+  indexes {
+    (micromedidor_id, created_at)
   }
 }
 

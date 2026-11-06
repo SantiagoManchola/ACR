@@ -53,6 +53,8 @@ FLUSH PRIVILEGES;
 mysql -u acr_user -p acr < datamodel/migrations/acr_migrations.sql
 # Si la BD ya existía antes del estado operativo de la planta:
 mysql -u acr_user -p acr < datamodel/migrations/acr_migrations_010_estado_planta.sql
+# Si ya existía antes de la corrección de suscriptor de un medidor:
+mysql -u acr_user -p acr < datamodel/migrations/acr_migrations_011_reasignacion_micromedidor.sql
 ```
 
 La conexión se configura con la variable de entorno `DATABASE_URL`
@@ -62,7 +64,7 @@ La conexión se configura con la variable de entorno `DATABASE_URL`
 DATABASE_URL=mysql+pymysql://acr_user:acr_password@localhost:3306/acr
 ```
 
-> El esquema (21 tablas) vive en `datamodel/migrations/acr_migrations.sql`
+> El esquema (22 tablas) vive en `datamodel/migrations/acr_migrations.sql`
 > y su diseño en `datamodel/acr.dbml` (Fase 2). El API no crea las tablas:
 > se ejecuta el SQL primero.
 
@@ -90,7 +92,10 @@ uvicorn app.main:app --reload
   `GET /inventario/alertas` (por debajo de mínimo).
 - **Micromedidores:** CRUD `suscriptores`, `micromedidores`, `POST /lecturas`,
   `GET /lecturas?micromedidor=&fecha=`, cálculo de consumo/promedio,
-  `GET /consumo/sector/{sector}`.
+  `GET /consumo/sector/{sector}`. `PATCH /micromedidores/{id}` acepta
+  `suscriptor_id` para corregir la asignación (admin/administrativo): mueve
+  todas las lecturas del medidor al nuevo suscriptor, sin borrarlas, y registra
+  la auditoría en `reasignaciones_micromedidor`. Acepta `motivo_reasignacion`.
 - **Planta:** CRUD `parametros_planta`, `POST /mediciones` (marca fuera_rango),
   `POST /dosificaciones`, `POST /actividades`, `POST /horas-servicio`,
   `GET /mediciones/fuera-rango`.
@@ -136,6 +141,8 @@ Respuesta estándar: `{ items, total, page, page_size, pages }`.
 Para los selects/filtros existen listas ligeras sin paginar:
 `/suscriptores/opciones`, `/micromedidores/opciones`, `/inventario/opciones`
 y `/usuarios/opciones` (id/nombre/estado y, en inventario, stock resumido).
+`/micromedidores/opciones` devuelve solo medidores **activos** por defecto
+(`?solo_activos=false` para incluir los inactivos, p. ej. en consultas históricas).
 
 `GET /dashboard/resumen?dias_consumo=60` calcula en UNA petición (agregados
 SQL, sin traer listas) todos los KPIs y tops del dashboard, recortados por

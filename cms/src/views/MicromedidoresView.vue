@@ -51,7 +51,12 @@ function setTab(t) {
   router.replace({ name: 'micromedidores', params: { tab: t } })
 }
 
-const susOptions = computed(() => mm.opcionesSuscriptores.map((s) => ({ value: s.id, label: s.nombre })))
+const susOptions = computed(() => mm.opcionesSuscriptores.map((s) => ({
+  value: s.id,
+  // Los inactivos se ven, pero marcados: el backend no permite asignarlos.
+  label: s.estado === 'activo' ? s.nombre : `${s.nombre} (inactivo)`,
+  inactivo: s.estado !== 'activo',
+})))
 const sectorOptions = computed(() => mm.sectores.map((s) => ({
   value: s.nombre,
   label: s.estado === 'activo' ? s.nombre : `${s.nombre} (inactivo)`,
@@ -95,10 +100,22 @@ async function doDel() {
   const p = pendingDel.value
   if (!p) return
   await accionRun(async () => {
-    if (p.tipo === 'sus') { await mm.deleteSuscriptor(p.id); await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value) }
+    if (p.tipo === 'sus') {
+      await mm.deleteSuscriptor(p.id)
+      await Promise.all([
+        mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value),
+        mm.loadSuscriptoresOpciones(),
+      ])
+    }
     else if (p.tipo === 'sec') { await mm.deleteSector(p.id); await cargarSectores() }
     else if (p.tipo === 'lec') { await mm.deleteLectura(p.id); await mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value, ordenLec.value, dirLec.value) }
-    else { await mm.deleteMicromedidor(p.id); await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value) }
+    else {
+      await mm.deleteMicromedidor(p.id)
+      await Promise.all([
+        mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value),
+        mm.loadMicromedidoresOpciones(),
+      ])
+    }
     confirmShow.value = false
     pendingDel.value = null
   })
@@ -109,6 +126,9 @@ function refreshAll() {
     mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value),
     mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value),
     mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value),
+    // La lista de opciones alimenta el buscador de «Registrar lectura»:
+    // si se cambió/inactivó un medidor, debe refrescarse junto con la tabla.
+    mm.loadMicromedidoresOpciones(),
   ])
 }
 
@@ -265,11 +285,13 @@ async function saveSus() {
 }
 async function delSus(r) { askDel('sus', r) }
 async function reactivarSus(r) {
-  await accionRun(async () => {
-    await mm.updateSuscriptor(r.id, { estado: 'activo' })
-    await mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value)
-    await mm.loadSuscriptoresOpciones()
-  })
+  // El botón del template ya envuelve la acción en accionRun(): aquí NO se
+  // vuelve a usar (useBusy ignora la segunda llamada y la acción no corría).
+  await mm.updateSuscriptor(r.id, { estado: 'activo' })
+  await Promise.all([
+    mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value),
+    mm.loadSuscriptoresOpciones(),
+  ])
 }
 
 /* ---------------- Sectores (catálogo, solo admin) ---------------- */
@@ -303,18 +325,38 @@ async function saveSec() {
 }
 async function delSec(r) { askDel('sec', r) }
 async function reactivarSec(r) {
-  await accionRun(async () => {
-    await mm.updateSector(r.id, { estado: 'activo' })
-    await cargarSectores()
-  })
+  // Ver nota en reactivarSus: un solo envoltorio de busy (el del template).
+  await mm.updateSector(r.id, { estado: 'activo' })
+  await cargarSectores()
 }
 
 /* ---------------- Micromedidores ---------------- */
 const showMm = ref(false)
 const editingMm = ref(null)
 const mmError = ref('')
-const emptyMm = () => ({ serial: '', tipo: '', suscriptor_id: null, direccion: '', fecha_instalacion: '', condicion: 'bueno' })
+const emptyMm = () => ({
+  serial: '', tipo: '', suscriptor_id: null, direccion: '',
+  fecha_instalacion: '', condicion: 'bueno', motivo_reasignacion: '',
+})
 const mmForm = ref(emptyMm())
+
+/* La asignación sí se puede corregir. Al cambiar el suscriptor, el backend
+   mueve también TODAS las lecturas del medidor: no se borra ninguna. */
+const normId = (v) => (v === '' || v === undefined || v === null ? null : Number(v))
+const suscriptorCambiado = computed(() => {
+  if (!editingMm.value) return false
+  return normId(mmForm.value.suscriptor_id) !== normId(editingMm.value.suscriptor_id)
+})
+const reasigShow = ref(false)
+const reasigMsg = computed(() => {
+  const serial = editingMm.value?.serial || '—'
+  const anterior = editingMm.value?.suscriptor_nombre || 'Sin asignar'
+  const nuevo = susOptions.value.find((o) => o.value === normId(mmForm.value.suscriptor_id))?.label || 'Sin asignar'
+  const avisoDuplicado = nuevo === 'Sin asignar'
+    ? ''
+    : ` Si ${nuevo} ya tiene otro medidor activo, continuá solo si estás corrigiendo un intercambio.`
+  return `Vas a reasignar el medidor «${serial}» de ${anterior} a ${nuevo}. Sus lecturas también se moverán al nuevo suscriptor y no se borrarán.${avisoDuplicado} ¿Confirmás?`
+})
 
 const mmCols = [
   { key: 'serial', label: 'Serial', cardTitle: true },
@@ -325,26 +367,72 @@ const mmCols = [
   { key: 'condicion', label: 'Condición' },
   { key: 'estado', label: 'Estado' },
 ]
-function openNewMm() { editingMm.value = null; mmForm.value = emptyMm(); mmError.value = ''; showMm.value = true }
-function openEditMm(r) { editingMm.value = r; mmForm.value = { ...r, condicion: r.condicion || 'bueno' }; mmError.value = ''; showMm.value = true }
+function openNewMm() { editingMm.value = null; mmForm.value = emptyMm(); mmError.value = ''; reasigShow.value = false; showMm.value = true }
+function openEditMm(r) {
+  editingMm.value = r
+  mmForm.value = { ...r, condicion: r.condicion || 'bueno', motivo_reasignacion: '' }
+  mmError.value = ''
+  reasigShow.value = false
+  showMm.value = true
+}
 async function saveMm() {
   mmError.value = ''
   if (!mmForm.value.serial) { mmError.value = 'El serial es obligatorio.'; return }
+  const sub = susOptions.value.find((o) => o.value === normId(mmForm.value.suscriptor_id))
+  if ((!editingMm.value || suscriptorCambiado.value) && sub?.inactivo) {
+    mmError.value = 'El suscriptor está inactivo: no se puede asignar.'
+    return
+  }
+  const payload = { ...mmForm.value }
+  if (editingMm.value && suscriptorCambiado.value) {
+    // No se guarda todavía: primero se confirma que se moverán las lecturas.
+    reasigShow.value = true
+    return
+  }
+  delete payload.motivo_reasignacion
+  await persistMm(payload, false)
+}
+async function confirmReasig() {
+  const payload = {
+    ...mmForm.value,
+    motivo_reasignacion: (mmForm.value.motivo_reasignacion || '').trim() || null,
+  }
+  await persistMm(payload, true)
+}
+async function persistMm(payload, reasignado) {
   saving.value = true
   try {
-    const payload = { ...mmForm.value }
-    if (editingMm.value) delete payload.suscriptor_id // un medidor no cambia de suscriptor
     if (editingMm.value) await mm.updateMicromedidor(editingMm.value.id, payload)
     else await mm.createMicromedidor(payload)
-    showMm.value = false; await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value)
-  } catch (e) { mmError.value = apiError(e) } finally { saving.value = false }
+    reasigShow.value = false
+    showMm.value = false
+    // Refrescar también las opciones del buscador de lecturas: si se creó un
+    // medidor nuevo o se editó uno existente, debe verse de inmediato. Si hubo
+    // reasignación, las lecturas y los suscriptores también cambiaron de dueño.
+    const tareas = [
+      mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value),
+      mm.loadMicromedidoresOpciones(),
+    ]
+    if (reasignado) {
+      tareas.push(
+        mm.loadLecturas(soloNoVacios(filtrosLec.value), pageLec.value, ordenLec.value, dirLec.value),
+        mm.loadSuscriptores(soloNoVacios(filtrosSus.value), pageSus.value, ordenSus.value, dirSus.value),
+      )
+    }
+    await Promise.all(tareas)
+  } catch (e) {
+    mmError.value = apiError(e)
+    reasigShow.value = false
+  } finally { saving.value = false }
 }
 async function delMm(r) { askDel('mm', r) }
 async function reactivarMm(r) {
-  await accionRun(async () => {
-    await mm.updateMicromedidor(r.id, { estado: 'activo' })
-    await mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value)
-  })
+  // Ver nota en reactivarSus: un solo envoltorio de busy (el del template).
+  await mm.updateMicromedidor(r.id, { estado: 'activo' })
+  await Promise.all([
+    mm.loadMicromedidores(soloNoVacios(filtrosMm.value), pageMm.value, ordenMm.value, dirMm.value),
+    mm.loadMicromedidoresOpciones(),
+  ])
 }
 
 /* Visor de evidencias fotográficas (miniaturas en tablas -> foto grande) */
@@ -585,6 +673,17 @@ function onPickMedidorUnico(val) {
   const op = (mm.opcionesMedidores || []).find((m) => m.id === val)
   lecForm.value.suscriptor_id = op?.suscriptor_id ?? null
 }
+/* Si el medidor elegido deja de estar activo (p. ej. se inactivó mientras el
+   modal estaba abierto), se limpia la selección para no guardar una lectura
+   contra un medidor viejo. El backend igual la rechazaría. */
+watch(lecMmOptions, (opts) => {
+  const id = lecForm.value.micromedidor_id
+  if (id && !opts.some((o) => o.value === id)) {
+    lecForm.value.micromedidor_id = null
+    lecForm.value.suscriptor_id = null
+    mm.lecturaAnterior = null
+  }
+})
 
 /* Lectura ANTERIOR del medidor elegido: se consulta apenas se selecciona el
    medidor para mostrarla ANTES de guardar (verificar la previa y detectar
@@ -628,12 +727,21 @@ const lecGuardarMsg = computed(() => {
   return `El valor escrito (${fmtNum(v, 0)}) es IGUAL al de la lectura anterior del ${a?.fecha ?? '—'}. Puede ser que el medidor esté frenado (no pasó agua) o que sea un registro duplicado. ¿Guardar de todos modos?`
 })
 const lecNovedadVisible = ref(false)
-function openNewLec() {
+async function openNewLec() {
   lecForm.value = emptyLec()
   lecError.value = ''
   lecNovedadVisible.value = false
+  mm.lecturaAnterior = null
+  // Vaciar la lista antes de abrir: mientras llega la respuesta fresca (solo
+  // medidores activos) no se debe mostrar el medidor viejo desde una lista
+  // cacheada. El modal abre de inmediato y la lista se llena al responder.
+  mm.opcionesMedidores = []
   showLec.value = true
-  if (!mm.opcionesMedidores?.length) mm.loadMicromedidoresOpciones()
+  try {
+    await mm.loadMicromedidoresOpciones()
+  } catch (e) {
+    lecError.value = apiError(e)
+  }
 }
 /* Guardas anti-duplicadas/errores antes de guardar (el backend revalida:
    defensa en profundidad). Devuelven false si no se debe guardar. */
@@ -943,8 +1051,13 @@ onMounted(() => {
         <div class="field"><label>Serial *</label><input class="input" v-model="mmForm.serial" /></div>
         <div class="field"><label>Tipo</label><input class="input" v-model="mmForm.tipo" placeholder="Ej. analógico, digital" /></div>
         <div class="field" style="grid-column:span 2"><label>Suscriptor</label>
-          <SearchableSelect v-model="mmForm.suscriptor_id" :options="susOptions" placeholder="Sin asignar" clearable :disabled="!!editingMm" />
-          <p v-if="editingMm" class="hint">Un medidor no cambia de suscriptor: la asignación se define al crearlo.</p>
+          <SearchableSelect v-model="mmForm.suscriptor_id" :options="susOptions" placeholder="Sin asignar" clearable />
+          <p v-if="editingMm" class="hint">Si cambiás el suscriptor, las lecturas del medidor también se mueven al nuevo suscriptor. No se borran.</p>
+          <p v-else class="hint">Podés dejarlo sin asignar y asignarlo después.</p>
+        </div>
+        <div v-if="editingMm && suscriptorCambiado" class="field" style="grid-column:span 2">
+          <label>Motivo del cambio (opcional)</label>
+          <input class="input" v-model="mmForm.motivo_reasignacion" maxlength="255" placeholder="Ej. se asignó al suscriptor equivocado" />
         </div>
         <div class="field" style="grid-column:span 2"><label>Dirección</label><input class="input" v-model="mmForm.direccion" /></div>
         <div class="field"><label>Fecha de instalación</label><BaseInput v-model="mmForm.fecha_instalacion" type="date" /></div>
@@ -1321,6 +1434,10 @@ onMounted(() => {
     </BaseModal>
 
     <ConfirmModal v-model:show="confirmShow" :title="confirmTitle" :message="confirmMsg" confirm-text="Sí, inactivar" danger :loading="accionBusy" @confirm="doDel" />
+
+    <!-- Confirmación al corregir el suscriptor de un medidor: mueve también
+         todas sus lecturas al nuevo suscriptor, sin borrar ninguna. -->
+    <ConfirmModal v-model:show="reasigShow" title="Reasignar medidor" :message="reasigMsg" confirm-text="Sí, reasignar" :danger="false" :loading="saving" @confirm="confirmReasig" />
 
     <!-- Confirmación al guardar una lectura con valor IGUAL al anterior:
          ¿medidor frenado o registro duplicado? -->

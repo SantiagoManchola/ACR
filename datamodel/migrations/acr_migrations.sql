@@ -414,4 +414,27 @@ INSERT IGNORE INTO componentes_planta (nombre, orden, estado) VALUES
   ('Sistema de desinfección', 9, 'activo'),
   ('Tanques de almacenamiento', 10, 'activo');
 
+-- ----------------------------- Auditoría de reasignaciones -------------------
+-- Correcciones de asignación suscriptor-medidor: guarda de quién a quién se
+-- movió el medidor, cuántas lecturas se movieron y el motivo. Las lecturas no
+-- se borran: se actualizan al nuevo suscriptor en la misma transacción.
+CREATE TABLE IF NOT EXISTS reasignaciones_micromedidor (
+  id                      INT AUTO_INCREMENT PRIMARY KEY,
+  micromedidor_id         INT NOT NULL,
+  suscriptor_anterior_id  INT NULL,
+  suscriptor_nuevo_id     INT NULL,
+  lecturas_movidas        INT NOT NULL DEFAULT 0,
+  motivo                  VARCHAR(255) NULL,
+  created_by              INT NULL,
+  updated_by              INT NULL,
+  created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_reasig_mm_fecha (micromedidor_id, created_at),
+  CONSTRAINT fk_reasig_mm      FOREIGN KEY (micromedidor_id)        REFERENCES micromedidores(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_reasig_ant     FOREIGN KEY (suscriptor_anterior_id) REFERENCES suscriptores(id)  ON DELETE RESTRICT,
+  CONSTRAINT fk_reasig_nuevo   FOREIGN KEY (suscriptor_nuevo_id)    REFERENCES suscriptores(id)  ON DELETE RESTRICT,
+  CONSTRAINT fk_reasig_created FOREIGN KEY (created_by)             REFERENCES usuarios(id)       ON DELETE SET NULL,
+  CONSTRAINT fk_reasig_updated FOREIGN KEY (updated_by)             REFERENCES usuarios(id)       ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

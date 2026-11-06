@@ -29,7 +29,8 @@
 
 ### Módulo de micromedidores
 - RF-21 Suscriptores · RF-22 Micromedidores · RF-23 Info del medidor (serial, tipo, dir., fecha) ·
-  RF-24 Asociación suscriptor-medidor · RF-25 Lecturas · RF-26 Fecha de lectura ·
+  RF-24 Asociación suscriptor-medidor (corregible por admin/administrativo; mueve las lecturas
+  y deja auditoría, sin borrarlas) · RF-25 Lecturas · RF-26 Fecha de lectura ·
   RF-27 Responsable · RF-28 Lecturas en fechas variables · RF-29 Historial de lecturas ·
   RF-30 Consulta de consumos · RF-31 Consumo promedio (histórico) · RF-32 Novedades ·
   RF-33 Corrección de lecturas · RF-34 Consulta por sector/barrio · RF-35 Reportes de consumo ·

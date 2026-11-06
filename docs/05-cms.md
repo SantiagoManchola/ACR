@@ -75,9 +75,11 @@ redirige a `/login`. La info de planta queda oculta para quien no tiene permiso
 2. **Menú por rol** (sidebar y rutas filtradas en `router/index.js`).
 3. **Inventario**: listar categorías/elementos, crear/editar/soft-delete, entrada/salida
    con motivo/observaciones, historial de movimientos y alertas bajo mínimo (rojo/ámbar).
-4. **Micromedidores**: CRUD suscriptores y medidores, registro de lectura (con opción
-   "lectura estimada / usar promedio histórico" y campo novedad), listado de lecturas,
-   consulta por sector y marcado de irregulares.
+4. **Micromedidores**: CRUD suscriptores y medidores, corrección del suscriptor asignado
+   a un medidor (mueve también sus lecturas, sin borrarlas, y deja auditoría; solo
+   admin/administrativo), registro de lectura (con opción "lectura estimada / usar
+   promedio histórico" y campo novedad), listado de lecturas, consulta por sector y
+   marcado de irregulares.
 5. **Planta**: pestaña principal **Estado de la planta** con diagrama lineal,
    semáforo verde/amarillo/rojo, actualización de estado con nota obligatoria en
    afectación/fuera de servicio, historial de cambios y configuración de partes

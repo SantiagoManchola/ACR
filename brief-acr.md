@@ -108,6 +108,7 @@ Cada fase tiene un agente dedicado (ver `AGENTS.md` y `agents/`):
 | 2 | `datamodel/acr.dbml` (dbdiagram.io) | `agents/datamodel-agent.md` |
 | 3 | `api/` (FastAPI + MySQL) | `agents/api-agent.md` |
 | 4 | `cms/` (SPA web) | `agents/cms-agent.md` |
+| 5 | `web/` (sitio público Astro) | `agents/web-agent.md` |
 
 ---
 

@@ -54,7 +54,16 @@
 - Separación API/CMS permite escalar el backend de forma independiente.
 - Modelo pensado para pasar de ~1.124 a miles de micromedidores.
 
-## 5. Entornos
-- Desarrollo: MySQL local (Docker) + SPA en dev server.
+## 5. Sitio público (Fase 5)
+- `web/` con **Astro 7** y salida estática: no depende del API en runtime.
+- Consume `/publico/*` en build y se reconstruye con un deploy hook al publicar.
+- El CMS existente gana un módulo **Contenido** con noticias, páginas y
+  configuración del sitio. Las imágenes se almacenan en R2.
+- Si el API no está disponible durante el build, se conserva la última versión
+  publicada y se usa el contenido local de desarrollo como fallback.
+- Plan: `docs/06-sitio-web.md`; herramientas: `docs/07-herramientas-y-referencias.md`.
+
+## 6. Entornos
+- Desarrollo: MySQL local (Docker) + SPA en dev server; sitio público en `web/`.
 - Producción: mismo stack; variables de entorno separadas; HTTPS obligatorio;
-  respaldos automáticos. (Detalles a definir en Fase 3/4.)
+  respaldos automáticos. (Detalles a definir en Fase 3/4/5.)

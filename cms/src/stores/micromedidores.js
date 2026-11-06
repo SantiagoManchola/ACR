@@ -87,7 +87,9 @@ export const useMicromedidoresStore = defineStore('micromedidores', {
       } catch (e) { this.error = apiError(e) } finally { this.cargas = Math.max(0, this.cargas - 1) }
     },
     async loadMicromedidoresOpciones() {
-      const { data } = await client.get('/micromedidores/opciones')
+      // Solo activos: el buscador de «Registrar lectura» no debe ofrecer
+      // medidores inactivados (p. ej. el reemplazado por uno nuevo).
+      const { data } = await client.get('/micromedidores/opciones', { params: { solo_activos: true } })
       this.opcionesMedidores = data
     },
     async createMicromedidor(p) { const { data } = await client.post('/micromedidores', p); return data },

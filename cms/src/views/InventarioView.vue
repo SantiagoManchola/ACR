@@ -241,10 +241,10 @@ async function doDelElem() {
   })
 }
 async function reactivarElem(r) {
-  await accionRun(async () => {
-    await inv.updateElemento(r.id, { estado: 'activo' })
-    await Promise.all([inv.loadElementos(aplicarFiltros(), pageElem.value), inv.loadOpciones()])
-  })
+  // El botón del template ya envuelve la acción en accionRun(): aquí NO se
+  // vuelve a usar (useBusy ignora la segunda llamada y la acción no corría).
+  await inv.updateElemento(r.id, { estado: 'activo' })
+  await Promise.all([inv.loadElementos(aplicarFiltros(), pageElem.value), inv.loadOpciones()])
 }
 
 function refreshInv() {

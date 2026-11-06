@@ -31,6 +31,10 @@
 - **Suscriptores:** *Micromedidores → Suscriptores* → alta con nombre, cédula, código,
   tipo (residencial/comercial), sector y dirección.
 - **Medidor:** asocia un *micromedidor* (serial, tipo, fecha de instalación) al suscriptor.
+- **Corregir el suscriptor de un medidor:** *Micromedidores → Micromedidores* → lápiz de edición →
+  cambia *Suscriptor* y confirma. Si el medidor ya tiene lecturas, también se mueven al nuevo
+  suscriptor; **no se borra ninguna**. Podés escribir un motivo opcional. Solo lo pueden hacer
+  el administrador y el rol administrativo.
 - **Lectura mensual:** *Lecturas → Nueva* → selecciona medidor, registra valor y fecha.
   - Si no se pudo leer (caja obstruida, acceso negado): marca **Novedad** y el sistema
     usará el **promedio histórico** como referencia.

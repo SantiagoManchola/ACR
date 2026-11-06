@@ -77,4 +77,5 @@ Azul `#2160AD` + blanco. Ver `context/marca-acr.md`.
 - **Fase 2:** modelo de datos en dbdiagram.io.
 - **Fase 3:** API (FastAPI).
 - **Fase 4:** CMS / panel web.
+- **Fase 5:** sitio web público (noticias, historia, proceso del agua y contacto).
 - Cada fase tiene su propio **agente** (ver `AGENTS.md`).

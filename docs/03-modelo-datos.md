@@ -29,6 +29,9 @@ Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual
 - `micromedidores` (id, serial, tipo, suscriptor_id, direccion, fecha_instalacion, estado)
 - `lecturas` (id, micromedidor_id, suscriptor_id, fecha, hora, lectura, consumo,
   responsable_id, promedio_usado: bool, novedad, created_by, timestamps)
+- `reasignaciones_micromedidor` (id, micromedidor_id, suscriptor_anterior_id,
+  suscriptor_nuevo_id, lecturas_movidas, motivo, created_by, timestamps): auditoría
+  de correcciones de asignación; las lecturas se mueven al nuevo suscriptor, no se borran.
 - `novedades_lectura` (id, lectura_id, tipo, descripcion)  [opcional, o campo en lecturas]
 
 ### Planta de tratamiento
@@ -51,6 +54,7 @@ Convertir los módulos y reglas de `docs/01-alcance.md` en un modelo DBML visual
 
 ## Reglas a reflejar en el modelo
 - Relaciones: suscriptor 1─* micromedidores; micromedidor 1─* lecturas;
+  micromedidor 1─* reasignaciones_micromedidor;
   elemento 1─* movimientos; parámetro 1─* mediciones; producto 1─* dosificaciones;
   componente de planta 1─* estados_componente_planta (historial inmutable).
 - Cada tabla transaccional lleva `created_by` / `updated_by` (trazabilidad, RNF-07).
